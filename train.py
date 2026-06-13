@@ -144,18 +144,23 @@ class SalukiTrainer:
                 
                 self.optimizer.zero_grad()
                 pred = self.model(x, species_index=di)
-                loss = self.loss_fn(pred, y)
+                mse_loss = self.loss_fn(pred, y)
+                # Add the Keras-equivalent L2 kernel penalty to the loss so its gradient
+                # flows through Adam and is clipped together with the data gradient (this
+                # matches Keras, where the regularization loss is part of the total loss).
+                loss = mse_loss + self.model.l2_loss()
                 loss.backward()
-                
+
                 # Gradient Clipping
                 if 'global_clipnorm' in self.params:
                     nn.utils.clip_grad_norm_(self.model.parameters(), self.params['global_clipnorm'])
-                    
+
                 self.optimizer.step()
                 if self.scheduler is not None:
                     self.scheduler.step()
-                    
-                epoch_losses[di] += loss.item()
+
+                # Report the MSE data loss only, so train_loss is comparable to valid_loss.
+                epoch_losses[di] += mse_loss.item()
                 epoch_steps[di] += 1
                 
             print(f"Epoch {epoch} - {time.time() - t0:.1f}s")
