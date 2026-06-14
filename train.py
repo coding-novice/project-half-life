@@ -1,5 +1,6 @@
 import time
 import math
+import wandb
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -74,7 +75,7 @@ class SalukiTrainer:
        is implemented via PyTorch's `LambdaLR` scheduler, modifying the base LR dynamically 
        per step exactly as the original code did.
     """
-    def __init__(self, model, train_dataloaders, eval_dataloaders, params, device='cuda'):
+    def __init__(self, model, train_dataloaders, eval_dataloaders, params, device='cuda', species_names=None, wandb_project=None):
         self.model = model.to(device)
         self.train_dataloaders = train_dataloaders
         self.eval_dataloaders = eval_dataloaders
@@ -82,6 +83,12 @@ class SalukiTrainer:
         self.device = device
         
         self.num_datasets = len(self.train_dataloaders)
+        self.species_names = species_names if species_names else [f"species_{i}" for i in range(self.num_datasets)]
+        
+        self.use_wandb = wandb_project is not None
+        if self.use_wandb:
+            wandb.init(project=wandb_project, config=self.params)
+            
         self.patience = self.params.get('patience', 25)
         self.train_epochs_min = self.params.get('train_epochs_min', 100)
         self.train_epochs_max = self.params.get('train_epochs_max', 250)
@@ -178,6 +185,7 @@ class SalukiTrainer:
             # Validation phase
             self.model.eval()
             combined_valid_r = 0.0
+            log_metrics = {}
             
             with torch.no_grad():
                 for di in range(self.num_datasets):
@@ -206,7 +214,17 @@ class SalukiTrainer:
                     # adding up pearson corr scores from all species into a combined score:
                     combined_valid_r += val_r
                     
-                    print(f"  Data {di} - train_loss: {train_loss:.4f} - valid_loss: {val_loss:.4f} - valid_r: {val_r:.4f}")
+                    species_name = self.species_names[di]
+                    log_metrics[f"{species_name}/train_loss"] = train_loss
+                    log_metrics[f"{species_name}/valid_loss"] = val_loss
+                    log_metrics[f"{species_name}/valid_r"] = val_r
+                    log_metrics[f"{species_name}/train_batches"] = epoch_steps[di]
+                    
+                    print(f"  {species_name} (Data {di}) - train_loss: {train_loss:.4f} - valid_loss: {val_loss:.4f} - valid_r: {val_r:.4f}")
+
+            log_metrics["combined/valid_r"] = combined_valid_r
+            if self.use_wandb:
+                wandb.log(log_metrics, step=epoch)
 
             # Checkpoint best model
             if combined_valid_r > best_valid_r:
