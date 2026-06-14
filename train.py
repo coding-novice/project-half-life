@@ -36,6 +36,11 @@ class Cyclical1LearningRate(optim.lr_scheduler.LambdaLR):
             
         super(Cyclical1LearningRate, self).__init__(optimizer, lr_lambda)
 
+def cycle(iterable):
+    while True:
+        for x in iterable:
+            yield x
+
 class SalukiTrainer:
     """
     Trainer class for the Saluki PyTorch model.
@@ -49,6 +54,8 @@ class SalukiTrainer:
        are lists of PyTorch DataLoader objects, where each dataloader corresponds 
        to one species. The species index is implicitly the index of the dataloader 
        in the list (e.g., index 0 for Human, index 1 for Mouse).
+    3. Batch Size: Assumes all dataloaders use the same batch_size, required for 
+       ensuring constant epoch size when adding data from more species.
        
     DOCUMENTATION OF ARCHITECTURE/IMPLEMENTATION CHANGES FROM TENSORFLOW:
     -------------------------------------------------------------------------
@@ -90,11 +97,19 @@ class SalukiTrainer:
             betas=(self.params.get('adam_beta1', 0.90), self.params.get('adam_beta2', 0.998))
         )
         
+        epoch_samples_limit = 0  # TODO: move defining this value to a config list later
+        
+        if epoch_samples_limit == 0:
+            num_core_species = min(2, self.num_datasets)
+            epoch_samples_limit = sum(len(self.train_dataloaders[i].dataset) for i in range(num_core_species))
+            
+        current_batch_size = self.train_dataloaders[0].batch_size
+        self.train_steps_per_epoch = epoch_samples_limit // current_batch_size
+
         # Scheduler
         # Check if cyclical LR params exist. The TF trainer optionally falls back to standard LR.
         if 'train_epochs_cycle1' in self.params and 'maximal_learning_rate' in self.params:
-            train_epoch_batches = sum(len(dl) for dl in self.train_dataloaders)
-            step_size = self.params['train_epochs_cycle1'] * train_epoch_batches
+            step_size = self.params['train_epochs_cycle1'] * self.train_steps_per_epoch
             
             self.scheduler = Cyclical1LearningRate(
                 self.optimizer,
@@ -107,12 +122,10 @@ class SalukiTrainer:
             self.scheduler = None
 
     def train(self, save_path='model_best.pt'):
-        # Precompute batches per epoch for all species
-        train_epoch_batches = [len(dl) for dl in self.train_dataloaders]
-        dataset_indexes = []
-        for di in range(self.num_datasets):
-            dataset_indexes += [di] * train_epoch_batches[di]
-        dataset_indexes = np.array(dataset_indexes)
+        # Precompute species sampling weights proportional to their dataset size
+        species_samples = [len(dl.dataset) for dl in self.train_dataloaders]
+        total_samples = sum(species_samples)
+        species_weights = [s / total_samples for s in species_samples]
         
         best_valid_r = -float('inf')
         unimproved = 0
@@ -123,20 +136,17 @@ class SalukiTrainer:
                 break
                 
             self.model.train()
-            np.random.shuffle(dataset_indexes)
             
-            # Get iterators
-            train_iters = [iter(dl) for dl in self.train_dataloaders]
+            # Initialize infinite iterators for all dataloaders
+            train_iters = [iter(cycle(dl)) for dl in self.train_dataloaders]
             
             t0 = time.time()
             epoch_losses = [0.0] * self.num_datasets
             epoch_steps = [0] * self.num_datasets
             
-            for di in dataset_indexes:
-                try:
-                    x, y = next(train_iters[di])
-                except StopIteration:
-                    continue
+            for step in range(self.train_steps_per_epoch):
+                di = np.random.choice(self.num_datasets, p=species_weights)
+                x, y = next(train_iters[di])
                 
                 # Move to device and ensure types are correct (float32)
                 x = x.to(self.device, dtype=torch.float32)
@@ -193,6 +203,7 @@ class SalukiTrainer:
                     all_targets = torch.cat(all_targets)
                     val_r = pearson_corrcoef(all_preds, all_targets).item()
                     
+                    # adding up pearson corr scores from all species into a combined score:
                     combined_valid_r += val_r
                     
                     print(f"  Data {di} - train_loss: {train_loss:.4f} - valid_loss: {val_loss:.4f} - valid_r: {val_r:.4f}")
@@ -204,4 +215,5 @@ class SalukiTrainer:
                 best_valid_r = combined_valid_r
                 torch.save(self.model.state_dict(), save_path)
             else:
+                # increment nr of epochs without improvement - early stopping if the nr exceeds the patience param
                 unimproved += 1
