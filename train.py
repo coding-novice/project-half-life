@@ -1,3 +1,5 @@
+import os
+import random
 import time
 import math
 import wandb
@@ -128,16 +130,39 @@ class SalukiTrainer:
         else:
             self.scheduler = None
 
-    def train(self, save_path='model_best.pt'):
+    def train(self, save_path='model_best.pt', checkpoint_path='checkpoint.pt', resume_from=None):
         # Precompute species sampling weights proportional to their dataset size
         species_samples = [len(dl.dataset) for dl in self.train_dataloaders]
         total_samples = sum(species_samples)
         species_weights = [s / total_samples for s in species_samples]
         
+        start_epoch = 0
         best_valid_r = -float('inf')
         unimproved = 0
         
-        for epoch in range(self.train_epochs_max):
+        if resume_from is not None:
+            if os.path.isfile(resume_from):
+                print(f"Resuming from checkpoint: {resume_from}")
+                checkpoint = torch.load(resume_from, map_location=self.device)
+                self.model.load_state_dict(checkpoint['model_state_dict'])
+                self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                if self.scheduler is not None and 'scheduler_state_dict' in checkpoint:
+                    self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                start_epoch = checkpoint['epoch'] + 1
+                best_valid_r = checkpoint['best_valid_r']
+                unimproved = checkpoint['unimproved']
+                
+                # Restore RNG states
+                torch.set_rng_state(checkpoint['torch_rng_state'])
+                if checkpoint['torch_cuda_rng_state'] is not None and torch.cuda.is_available():
+                    torch.cuda.set_rng_state(checkpoint['torch_cuda_rng_state'])
+                np.random.set_state(checkpoint['numpy_rng_state'])
+                random.setstate(checkpoint['random_rng_state'])
+                print(f"Resumed successfully from epoch {start_epoch-1}.")
+            else:
+                raise FileNotFoundError(f"Checkpoint file not found: {resume_from}")
+        
+        for epoch in range(start_epoch, self.train_epochs_max):
             if epoch >= self.train_epochs_min and unimproved > self.patience:
                 print(f"Early stopping at epoch {epoch}")
                 break
@@ -235,3 +260,22 @@ class SalukiTrainer:
             else:
                 # increment nr of epochs without improvement - early stopping if the nr exceeds the patience param
                 unimproved += 1
+
+            # Save full training checkpoint at the end of each epoch for resuming
+            checkpoint_state = {
+                'epoch': epoch,
+                'model_state_dict': self.model.state_dict(),
+                'optimizer_state_dict': self.optimizer.state_dict(),
+                'best_valid_r': best_valid_r,
+                'unimproved': unimproved,
+                'torch_rng_state': torch.get_rng_state(),
+                'torch_cuda_rng_state': torch.cuda.get_rng_state() if torch.cuda.is_available() else None,
+                'numpy_rng_state': np.random.get_state(),
+                'random_rng_state': random.getstate(),
+            }
+            if self.scheduler is not None:
+                checkpoint_state['scheduler_state_dict'] = self.scheduler.state_dict()
+                
+            temp_checkpoint_path = checkpoint_path + ".tmp"
+            torch.save(checkpoint_state, temp_checkpoint_path)
+            os.replace(temp_checkpoint_path, checkpoint_path)
