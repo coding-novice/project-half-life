@@ -11,20 +11,26 @@ from torch.utils.data import DataLoader, Dataset
 
 SEQ_LENGTH = 12288
 
-HUMAN_TSV = (
-    "/home/valentin/master/ml4rg/clusterhome/project03/"
-    "toga_13_species_updated/saluki_human.hg38.hg38.tsv"
-)
-MOUSE_TSV = (
-    "/home/valentin/master/ml4rg/clusterhome/project03/"
-    "toga_13_species_updated/saluki_mouse.mm10.mm10.tsv"
-)
-
+#BASE_DATA_PATH = "/home/valentin/master/ml4rg/clusterhome/project03/toga_13_species_updated/"
+BASE_DATA_PATH = "/data/ceph/hdd/project/node_07/ml4rg_students/2026/project03/toga_13_species_updated"
 SPECIES_TSVS: Mapping[str, str] = {
-    "human": HUMAN_TSV,
-    "mouse": MOUSE_TSV,
+    "bat": BASE_DATA_PATH + "saluki_bat.hg38.HLrouAeg4.tsv",
+    "cattle": BASE_DATA_PATH + "saluki_cattle.hg38.bosTau9.tsv",
+    "dog": BASE_DATA_PATH + "saluki_dog.hg38.canFam6.tsv",
+    "hare": BASE_DATA_PATH + "saluki_hare.hg38.HLlepYar1.tsv",
+    "horse": BASE_DATA_PATH + "saluki_horse.hg38.HLequCaba4.tsv",
+    "human": BASE_DATA_PATH + "saluki_human.hg38.hg38.tsv",
+    "marmoset": BASE_DATA_PATH + "saluki_marmoset.hg38.HLcalJacc6.tsv",
+    "mouse": BASE_DATA_PATH + "saluki_mouse.mm10.mm10.tsv",
+    "pig": BASE_DATA_PATH + "saluki_pig.hg38.HLsusScro12.tsv",
+    "rabbit": BASE_DATA_PATH + "saluki_rabbit.hg38.HLoryCuni5.tsv",
+    "rat": BASE_DATA_PATH + "saluki_rat.hg38.HLratNor8.tsv",
+    "rhesus": BASE_DATA_PATH + "saluki_rhesus.hg38.HLmacMula11.tsv",
+    "whale": BASE_DATA_PATH + "saluki_whale.hg38.HLmegNova3.tsv",
 }
-SPECIES_ORDER: Tuple[str, str] = ("human", "mouse")
+SPECIES_ORDER: Tuple[str, str] = 
+    ("human", "mouse","bat", "cattle", "dog", "hare", "horse",
+     "marmose",  "pig", "rabbit", "rat", "rhesus", "whale")
 
 # todo: read this in as  an argument from startup shall script / sbatch
 SPLIT_TO_FOLDS: Mapping[str, Tuple[int, ...]] = {
