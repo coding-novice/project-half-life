@@ -30,8 +30,8 @@ SPECIES_TSVS: Mapping[str, str] = {
 }
 # todo: find better species order for project extension
 SPECIES_ORDER: Tuple[str, str] = (
-    "human", "mouse","bat", "cattle", "dog", "hare", "horse",
-    "marmoset",  "pig", "rabbit", "rat", "rhesus", "whale"
+    "human", "mouse"
+    #,"bat", "cattle", "dog", "hare", "horse", "marmoset",  "pig", "rabbit", "rat", "rhesus", "whale"
 )
 
 # todo: read this in as  an argument from startup shall script / sbatch

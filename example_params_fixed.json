@@ -1,0 +1,26 @@
+{
+  "model": {
+    "seq_length": 12288,
+    "seq_depth": 6,
+    "filters": 64,
+    "kernel_size": 5,
+    "dropout": 0.3,
+    "num_layers": 6,
+    "heads": 2,
+    "ln_epsilon": 0.007,
+    "bn_momentum": 0.9,
+    "bn_epsilon": 0.001,
+    "l2_scale": 0.001,
+    "augment_shift": 3
+  },
+  "train": {
+    "batch_size": 64,
+    "learning_rate": 0.0001,
+    "adam_beta1": 0.9,
+    "adam_beta2": 0.998,
+    "global_clipnorm": 0.2,
+    "patience": 25,
+    "train_epochs_min": 1,
+    "train_epochs_max": 1
+  }
+}

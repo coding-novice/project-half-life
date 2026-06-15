@@ -1,0 +1,20 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+.ipynb_checkpoints/
+.main.py.swp
+
+# dirs
+logs/
+out_first_try/
+
+# Test data
+*h5
+*h5ad
+*.gz
+*.gz.tbi
+*bam
+*bam.bai
+*bw
+wandb/
+*pq
+*npz

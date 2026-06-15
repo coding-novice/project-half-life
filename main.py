@@ -6,6 +6,7 @@ import shutil
 import torch
 from datetime import datetime
 
+from data import create_saluki_dataloaders
 from model import SalukiModel
 from train import SalukiTrainer
 
@@ -117,21 +118,22 @@ def main():
 
     # Initialize dataloaders
     batch_size = params_train.get('batch_size', 64)
-    for data_dir in data_dirs:
-        # TODO: Replace DummyDataLoader with actual RnaDataset
-        # Example of how it might look:
-        # train_dataset = RnaDataset(data_dir, split_label='train')
-        # eval_dataset = RnaDataset(data_dir, split_label='valid')
-        # train_dl = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        # eval_dl = DataLoader(eval_dataset, batch_size=batch_size, shuffle=False)
-        
-        # Placeholder initialization
-        train_dl = DummyDataLoader(data_dir, split_label='train', batch_size=batch_size)
-        eval_dl = DummyDataLoader(data_dir, split_label='valid', batch_size=batch_size)
-        
-        train_data.append(train_dl)
-        eval_data.append(eval_dl)
-        species_names.append(os.path.basename(os.path.normpath(data_dir)))
+    #for data_dir in data_dirs:
+    #    # TODO: Replace DummyDataLoader with actual RnaDataset
+    #    # Example of how it might look:
+    #    # train_dataset = RnaDataset(data_dir, split_label='train')
+    #    # eval_dataset = RnaDataset(data_dir, split_label='valid')
+    #    # train_dl = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    #    # eval_dl = DataLoader(eval_dataset, batch_size=batch_size, shuffle=False)
+    #    
+    #    # Placeholder initialization
+    #    train_dl = DummyDataLoader(data_dir, split_label='train', batch_size=batch_size)
+    #    eval_dl = DummyDataLoader(data_dir, split_label='valid', batch_size=batch_size)
+    #    
+    #    train_data.append(train_dl)
+    #    eval_data.append(eval_dl)
+    #    species_names.append(os.path.basename(os.path.normpath(data_dir)))
+    train_data, eval_data, _ = create_saluki_dataloaders(include_test=False) 
 
     # Initialize model
     model = SalukiModel(**params_model)
