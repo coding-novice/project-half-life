@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, Dataset
 SEQ_LENGTH = 12288
 
 #BASE_DATA_PATH = "/home/valentin/master/ml4rg/clusterhome/project03/toga_13_species_updated/"
-BASE_DATA_PATH = "/data/ceph/hdd/project/node_07/ml4rg_students/2026/project03/toga_13_species_updated"
+BASE_DATA_PATH = "/data/ceph/hdd/project/node_07/ml4rg_students/2026/project03/toga_13_species_updated/"
 SPECIES_TSVS: Mapping[str, str] = {
     "bat": BASE_DATA_PATH + "saluki_bat.hg38.HLrouAeg4.tsv",
     "cattle": BASE_DATA_PATH + "saluki_cattle.hg38.bosTau9.tsv",
@@ -28,6 +28,7 @@ SPECIES_TSVS: Mapping[str, str] = {
     "rhesus": BASE_DATA_PATH + "saluki_rhesus.hg38.HLmacMula11.tsv",
     "whale": BASE_DATA_PATH + "saluki_whale.hg38.HLmegNova3.tsv",
 }
+# todo: find better species order for project extension
 SPECIES_ORDER: Tuple[str, str] = 
     ("human", "mouse","bat", "cattle", "dog", "hare", "horse",
      "marmose",  "pig", "rabbit", "rat", "rhesus", "whale")
