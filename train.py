@@ -1,5 +1,8 @@
+import os
+import random
 import time
 import math
+import wandb
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -36,6 +39,11 @@ class Cyclical1LearningRate(optim.lr_scheduler.LambdaLR):
             
         super(Cyclical1LearningRate, self).__init__(optimizer, lr_lambda)
 
+def cycle(iterable):
+    while True:
+        for x in iterable:
+            yield x
+
 class SalukiTrainer:
     """
     Trainer class for the Saluki PyTorch model.
@@ -49,6 +57,8 @@ class SalukiTrainer:
        are lists of PyTorch DataLoader objects, where each dataloader corresponds 
        to one species. The species index is implicitly the index of the dataloader 
        in the list (e.g., index 0 for Human, index 1 for Mouse).
+    3. Batch Size: Assumes all dataloaders use the same batch_size, required for 
+       ensuring constant epoch size when adding data from more species.
        
     DOCUMENTATION OF ARCHITECTURE/IMPLEMENTATION CHANGES FROM TENSORFLOW:
     -------------------------------------------------------------------------
@@ -67,7 +77,7 @@ class SalukiTrainer:
        is implemented via PyTorch's `LambdaLR` scheduler, modifying the base LR dynamically 
        per step exactly as the original code did.
     """
-    def __init__(self, model, train_dataloaders, eval_dataloaders, params, device='cuda'):
+    def __init__(self, model, train_dataloaders, eval_dataloaders, params, device='cuda', species_names=None, wandb_project=None):
         self.model = model.to(device)
         self.train_dataloaders = train_dataloaders
         self.eval_dataloaders = eval_dataloaders
@@ -75,6 +85,12 @@ class SalukiTrainer:
         self.device = device
         
         self.num_datasets = len(self.train_dataloaders)
+        self.species_names = species_names if species_names else [f"species_{i}" for i in range(self.num_datasets)]
+        
+        self.use_wandb = wandb_project is not None
+        if self.use_wandb:
+            wandb.init(project=wandb_project, config=self.params)
+            
         self.patience = self.params.get('patience', 25)
         self.train_epochs_min = self.params.get('train_epochs_min', 100)
         self.train_epochs_max = self.params.get('train_epochs_max', 250)
@@ -90,11 +106,19 @@ class SalukiTrainer:
             betas=(self.params.get('adam_beta1', 0.90), self.params.get('adam_beta2', 0.998))
         )
         
+        epoch_samples_limit = 0  # TODO: move defining this value to a config list later
+        
+        if epoch_samples_limit == 0:
+            num_core_species = min(2, self.num_datasets)
+            epoch_samples_limit = sum(len(self.train_dataloaders[i].dataset) for i in range(num_core_species))
+            
+        current_batch_size = self.train_dataloaders[0].batch_size
+        self.train_steps_per_epoch = epoch_samples_limit // current_batch_size
+
         # Scheduler
         # Check if cyclical LR params exist. The TF trainer optionally falls back to standard LR.
         if 'train_epochs_cycle1' in self.params and 'maximal_learning_rate' in self.params:
-            train_epoch_batches = sum(len(dl) for dl in self.train_dataloaders)
-            step_size = self.params['train_epochs_cycle1'] * train_epoch_batches
+            step_size = self.params['train_epochs_cycle1'] * self.train_steps_per_epoch
             
             self.scheduler = Cyclical1LearningRate(
                 self.optimizer,
@@ -106,37 +130,55 @@ class SalukiTrainer:
         else:
             self.scheduler = None
 
-    def train(self, save_path='model_best.pt'):
-        # Precompute batches per epoch for all species
-        train_epoch_batches = [len(dl) for dl in self.train_dataloaders]
-        dataset_indexes = []
-        for di in range(self.num_datasets):
-            dataset_indexes += [di] * train_epoch_batches[di]
-        dataset_indexes = np.array(dataset_indexes)
+    def train(self, save_path='model_best.pt', checkpoint_path='checkpoint.pt', resume_from=None):
+        # Precompute species sampling weights proportional to their dataset size
+        species_samples = [len(dl.dataset) for dl in self.train_dataloaders]
+        total_samples = sum(species_samples)
+        species_weights = [s / total_samples for s in species_samples]
         
+        start_epoch = 0
         best_valid_r = -float('inf')
         unimproved = 0
         
-        for epoch in range(self.train_epochs_max):
+        if resume_from is not None:
+            if os.path.isfile(resume_from):
+                print(f"Resuming from checkpoint: {resume_from}")
+                checkpoint = torch.load(resume_from, map_location=self.device)
+                self.model.load_state_dict(checkpoint['model_state_dict'])
+                self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                if self.scheduler is not None and 'scheduler_state_dict' in checkpoint:
+                    self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                start_epoch = checkpoint['epoch'] + 1
+                best_valid_r = checkpoint['best_valid_r']
+                unimproved = checkpoint['unimproved']
+                
+                # Restore RNG states
+                torch.set_rng_state(checkpoint['torch_rng_state'])
+                if checkpoint['torch_cuda_rng_state'] is not None and torch.cuda.is_available():
+                    torch.cuda.set_rng_state(checkpoint['torch_cuda_rng_state'])
+                np.random.set_state(checkpoint['numpy_rng_state'])
+                random.setstate(checkpoint['random_rng_state'])
+                print(f"Resumed successfully from epoch {start_epoch-1}.")
+            else:
+                raise FileNotFoundError(f"Checkpoint file not found: {resume_from}")
+        
+        for epoch in range(start_epoch, self.train_epochs_max):
             if epoch >= self.train_epochs_min and unimproved > self.patience:
                 print(f"Early stopping at epoch {epoch}")
                 break
                 
             self.model.train()
-            np.random.shuffle(dataset_indexes)
             
-            # Get iterators
-            train_iters = [iter(dl) for dl in self.train_dataloaders]
+            # Initialize infinite iterators for all dataloaders
+            train_iters = [iter(cycle(dl)) for dl in self.train_dataloaders]
             
             t0 = time.time()
             epoch_losses = [0.0] * self.num_datasets
             epoch_steps = [0] * self.num_datasets
             
-            for di in dataset_indexes:
-                try:
-                    x, y = next(train_iters[di])
-                except StopIteration:
-                    continue
+            for step in range(self.train_steps_per_epoch):
+                di = np.random.choice(self.num_datasets, p=species_weights)
+                x, y = next(train_iters[di])
                 
                 # Move to device and ensure types are correct (float32)
                 x = x.to(self.device, dtype=torch.float32)
@@ -168,6 +210,7 @@ class SalukiTrainer:
             # Validation phase
             self.model.eval()
             combined_valid_r = 0.0
+            log_metrics = {}
             
             with torch.no_grad():
                 for di in range(self.num_datasets):
@@ -193,9 +236,20 @@ class SalukiTrainer:
                     all_targets = torch.cat(all_targets)
                     val_r = pearson_corrcoef(all_preds, all_targets).item()
                     
+                    # adding up pearson corr scores from all species into a combined score:
                     combined_valid_r += val_r
                     
-                    print(f"  Data {di} - train_loss: {train_loss:.4f} - valid_loss: {val_loss:.4f} - valid_r: {val_r:.4f}")
+                    species_name = self.species_names[di]
+                    log_metrics[f"{species_name}/train_loss"] = train_loss
+                    log_metrics[f"{species_name}/valid_loss"] = val_loss
+                    log_metrics[f"{species_name}/valid_r"] = val_r
+                    log_metrics[f"{species_name}/train_batches"] = epoch_steps[di]
+                    
+                    print(f"  {species_name} (Data {di}) - train_loss: {train_loss:.4f} - valid_loss: {val_loss:.4f} - valid_r: {val_r:.4f}")
+
+            log_metrics["combined/valid_r"] = combined_valid_r
+            if self.use_wandb:
+                wandb.log(log_metrics, step=epoch)
 
             # Checkpoint best model
             if combined_valid_r > best_valid_r:
@@ -204,4 +258,24 @@ class SalukiTrainer:
                 best_valid_r = combined_valid_r
                 torch.save(self.model.state_dict(), save_path)
             else:
+                # increment nr of epochs without improvement - early stopping if the nr exceeds the patience param
                 unimproved += 1
+
+            # Save full training checkpoint at the end of each epoch for resuming
+            checkpoint_state = {
+                'epoch': epoch,
+                'model_state_dict': self.model.state_dict(),
+                'optimizer_state_dict': self.optimizer.state_dict(),
+                'best_valid_r': best_valid_r,
+                'unimproved': unimproved,
+                'torch_rng_state': torch.get_rng_state(),
+                'torch_cuda_rng_state': torch.cuda.get_rng_state() if torch.cuda.is_available() else None,
+                'numpy_rng_state': np.random.get_state(),
+                'random_rng_state': random.getstate(),
+            }
+            if self.scheduler is not None:
+                checkpoint_state['scheduler_state_dict'] = self.scheduler.state_dict()
+                
+            temp_checkpoint_path = checkpoint_path + ".tmp"
+            torch.save(checkpoint_state, temp_checkpoint_path)
+            os.replace(temp_checkpoint_path, checkpoint_path)
