@@ -44,12 +44,11 @@ class DummyDataLoader:
 def main():
     parser = argparse.ArgumentParser(description="Train Saluki PyTorch model.")
     parser.add_argument('params_file', type=str, nargs='?', help='Path to params.json (Optional if resuming)')
-    parser.add_argument('data_dirs', type=str, nargs='*', help='List of data directories (one per species) (Optional if resuming)')
     parser.add_argument('-o', '--out_dir', type=str, default='train_out', help='Output directory [Default: train_out]')
     parser.add_argument('--wandb_project', type=str, default=None, help='Weights & Biases project name for logging')
     parser.add_argument('--run_name', type=str, default=None, help='Weights & Biases run name for logging')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help='Device to train on (cuda/cpu)')
-    parser.add_argument('--resume_checkpoint_path', type=str, default=None, help='Path to a checkpoint file to resume from. When used, params_file and data_dirs are ignored.')
+    parser.add_argument('--resume_checkpoint_path', type=str, default=None, help='Path to a checkpoint file to resume from. When used, params_file is ignored.')
     
     args = parser.parse_args()
 
@@ -88,8 +87,8 @@ def main():
         if not data_dirs:
             raise ValueError("data_dirs not found in the loaded params.json. Cannot resume.")
     else:
-        if not args.params_file or not args.data_dirs:
-            parser.error("params_file and data_dirs are required unless resuming via --resume_checkpoint_path.")
+        if not args.params_file:
+            parser.error("params_file is required unless resuming via --resume_checkpoint_path.")
             
         run_identifier = current_identifier
         run_dir = os.path.join(args.out_dir, run_identifier)
@@ -98,43 +97,27 @@ def main():
         params_file_path = os.path.join(run_dir, f"params_{run_identifier}.json")
         save_path = os.path.join(run_dir, f"model_best_{run_identifier}.pt")
         checkpoint_path = os.path.join(run_dir, f"checkpoint_{run_identifier}.pt")
-        
+
         with open(args.params_file, 'r') as params_open:
             params = json.load(params_open)
-            
-        # Inject data_dirs into params and save it so we can resume later without CLI args
-        params['data_dirs'] = args.data_dirs
-        
-        with open(params_file_path, 'w') as f:
-            json.dump(params, f, indent=4)
-            
-        data_dirs = args.data_dirs
 
     params_model = params.get('model', {})
     params_train = params.get('train', {})
-
+    data_dirs = params.get('data_dirs')
+    species_names = list(data_dirs.keys())
     train_data = []
     eval_data = []
-    species_names = []
 
     # Initialize dataloaders
-    batch_size = params_train.get('batch_size', 64)
-    #for data_dir in data_dirs:
-    #    # TODO: Replace DummyDataLoader with actual RnaDataset
-    #    # Example of how it might look:
-    #    # train_dataset = RnaDataset(data_dir, split_label='train')
-    #    # eval_dataset = RnaDataset(data_dir, split_label='valid')
-    #    # train_dl = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    #    # eval_dl = DataLoader(eval_dataset, batch_size=batch_size, shuffle=False)
-    #    
-    #    # Placeholder initialization
-    #    train_dl = DummyDataLoader(data_dir, split_label='train', batch_size=batch_size)
-    #    eval_dl = DummyDataLoader(data_dir, split_label='valid', batch_size=batch_size)
-    #    
-    #    train_data.append(train_dl)
-    #    eval_data.append(eval_dl)
-    #    species_names.append(os.path.basename(os.path.normpath(data_dir)))
-    train_data, eval_data, _ = create_saluki_dataloaders(include_test=False) 
+    train_data, eval_data = create_saluki_dataloaders(
+        species_tsvs=data_dirs,
+        species_order=species_names,
+        batch_size=params_train.get('batch_size'),
+        seq_length=params_model.get('seq_length'),
+        num_workers=4,
+        drop_last=True,
+        include_test=False
+    )
 
     # Initialize model
     model = SalukiModel(**params_model)

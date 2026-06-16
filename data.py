@@ -179,7 +179,7 @@ def create_saluki_dataloaders(
     train_loaders: List[DataLoader] = []
     valid_loaders: List[DataLoader] = []
     test_loaders: List[DataLoader] = []
-
+    # print(f'DEBUG {paths}')
     for species in species_order:
         if species not in paths:
             raise ValueError(f"No TSV path configured for species {species!r}")
@@ -209,5 +209,7 @@ def create_saluki_dataloaders(
                     drop_last=drop_last,
                 )
             )
-
-    return train_loaders, valid_loaders, test_loaders if include_test else None
+    if include_test:
+        return train_loaders, valid_loaders, test_loaders
+    else:
+        return train_loaders, valid_loaders

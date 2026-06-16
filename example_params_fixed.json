@@ -22,5 +22,9 @@
     "patience": 25,
     "train_epochs_min": 1,
     "train_epochs_max": 1000
+  },
+  "data_dirs": {
+    "human": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_human.hg38.hg38.tsv",
+    "mouse": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_mouse.mm10.mm10.tsv"
   }
 }
