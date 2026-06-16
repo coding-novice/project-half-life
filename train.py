@@ -77,7 +77,7 @@ class SalukiTrainer:
        is implemented via PyTorch's `LambdaLR` scheduler, modifying the base LR dynamically 
        per step exactly as the original code did.
     """
-    def __init__(self, model, train_dataloaders, eval_dataloaders, params, device='cuda', species_names=None, wandb_project=None):
+    def __init__(self, model, train_dataloaders, eval_dataloaders, params, device='cuda', species_names=None, wandb_project=None, run_name=None):
         self.model = model.to(device)
         self.train_dataloaders = train_dataloaders
         self.eval_dataloaders = eval_dataloaders
@@ -89,7 +89,13 @@ class SalukiTrainer:
         
         self.use_wandb = wandb_project is not None
         if self.use_wandb:
-            wandb.init(project=wandb_project, config=self.params)
+            assert run_name is not None
+            self.wandb_run = wandb.init(
+                entity="project-half-life",
+                project=wandb_project,
+                name=run_name,
+                config=self.params,
+            )
             
         self.patience = self.params.get('patience', 25)
         self.train_epochs_min = self.params.get('train_epochs_min', 100)
@@ -249,7 +255,7 @@ class SalukiTrainer:
 
             log_metrics["combined/valid_r"] = combined_valid_r
             if self.use_wandb:
-                wandb.log(log_metrics, step=epoch)
+                self.wandb_run.log(log_metrics, step=epoch)
 
             # Checkpoint best model
             if combined_valid_r > best_valid_r:

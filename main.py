@@ -47,6 +47,7 @@ def main():
     parser.add_argument('data_dirs', type=str, nargs='*', help='List of data directories (one per species) (Optional if resuming)')
     parser.add_argument('-o', '--out_dir', type=str, default='train_out', help='Output directory [Default: train_out]')
     parser.add_argument('--wandb_project', type=str, default=None, help='Weights & Biases project name for logging')
+    parser.add_argument('--run_name', type=str, default=None, help='Weights & Biases run name for logging')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help='Device to train on (cuda/cpu)')
     parser.add_argument('--resume_checkpoint_path', type=str, default=None, help='Path to a checkpoint file to resume from. When used, params_file and data_dirs are ignored.')
     
@@ -146,7 +147,8 @@ def main():
         params=params_train,
         device=args.device,
         species_names=species_names,
-        wandb_project=args.wandb_project
+        wandb_project=args.wandb_project,
+        run_name=args.run_name
     )
 
     # Fit

@@ -12,4 +12,10 @@
 echo "Starting job on $(hostname) at $(date)"
 echo "SLURM_JOB_ID: $SLURM_JOB_ID"
 
-python3 main.py example_params_fixed.json /s/project/ml4rg_students/2026/project03/datasets/human /s/project/ml4rg_students/2026/project03/datasets/mouse -o out_first_try
+python3 main.py \
+    example_params_fixed.json \
+    /s/project/ml4rg_students/2026/project03/datasets/human \
+    /s/project/ml4rg_students/2026/project03/datasets/mouse \
+    -o outputs/out_setup \
+    --wandb_project saluki_pytorch \
+    --run_name test_run

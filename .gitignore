@@ -6,6 +6,7 @@ __pycache__/
 # dirs
 logs/
 out_first_try/
+outputs/
 
 # Test data
 *h5

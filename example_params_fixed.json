@@ -21,6 +21,6 @@
     "global_clipnorm": 0.2,
     "patience": 25,
     "train_epochs_min": 1,
-    "train_epochs_max": 100
+    "train_epochs_max": 1000
   }
 }
