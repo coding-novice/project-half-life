@@ -7,6 +7,16 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
+import pandas as pd
+from basenji import dna_io
+
+from scipy.stats import pearsonr, spearmanr
+def pearson(x, y):
+    r = pearsonr(x, y)[0]
+    return round(r, 4)
+def spearman(x, y):
+    r = spearmanr(x, y)[0]
+    return round(r, 4)
 
 def pearson_corrcoef(x, y):
     """Computes Pearson correlation coefficient between two 1D tensors."""
@@ -77,12 +87,15 @@ class SalukiTrainer:
        is implemented via PyTorch's `LambdaLR` scheduler, modifying the base LR dynamically 
        per step exactly as the original code did.
     """
-    def __init__(self, model, train_dataloaders, eval_dataloaders, params, device='cuda', species_names=None, wandb_project=None, run_name=None):
+    def __init__(self, model, train_dataloaders, eval_dataloaders, params, params_model, device='cuda', species_names=None, wandb_project=None, run_name=None, df_reporter=None, df_mpras=None):
         self.model = model.to(device)
         self.train_dataloaders = train_dataloaders
         self.eval_dataloaders = eval_dataloaders
         self.params = params
+        self.params_model = params_model
         self.device = device
+        self.df_reporter = df_reporter
+        self.df_mpras = df_mpras
         
         self.num_datasets = len(self.train_dataloaders)
         self.species_names = species_names if species_names else [f"species_{i}" for i in range(self.num_datasets)]
@@ -137,6 +150,14 @@ class SalukiTrainer:
             self.scheduler = None
 
     def train(self, save_path='model_best.pt', checkpoint_path='checkpoint.pt', resume_from=None):
+        construct = self.df_reporter.values
+        seq = self.df_mpras[[0]][0].values
+        aa_len = int(len(construct[1][0])/3)
+        coding = np.append(np.zeros(len(construct[0][0])), np.tile([1,0,0], aa_len))
+        reporter = construct[0]+construct[1]+construct[2]
+        df_mpras = self.df_mpras.rename(columns={0: 'seq', 1: 'measured'}).drop(columns=2).dropna()
+        print(f"DEBUG: mpra shape: {df_mpras.shape}")
+
         # Precompute species sampling weights proportional to their dataset size
         species_samples = [len(dl.dataset) for dl in self.train_dataloaders]
         total_samples = sum(species_samples)
@@ -252,6 +273,28 @@ class SalukiTrainer:
                     log_metrics[f"{species_name}/train_batches"] = epoch_steps[di]
                     
                     print(f"  {species_name} (Data {di}) - train_loss: {train_loss:.4f} - valid_loss: {val_loss:.4f} - valid_r: {val_r:.4f}")
+
+                if (epoch <= 20 and epoch % 5 == 0) or (epoch > 20 and epoch % 10 == 0):
+                    df_perf = {
+                        'seq': [],
+                        'pred': []
+                    }
+                    for i in seq: # iterate through all sequences
+                        batch = np.zeros((1, self.params_model.get('seq_length', 12288), 6))
+                        myseq = (reporter+i+construct[3])[0]
+                        batch[0,0:len(myseq),0:4] = dna_io.dna_1hot(myseq)
+                        batch[0,0:len(coding),4] = coding
+                        batch = torch.from_numpy(batch).float().to(self.device)
+                        pred = self.model(batch)
+                        df_perf['seq'].append(i)
+                        df_perf['pred'].append(pred[0][0].cpu().numpy())
+
+                    df_perf = pd.DataFrame(df_perf)
+                    df_j_targ = df_perf.set_index('seq').drop_duplicates().join(
+                        df_mpras.set_index('seq').drop_duplicates(), how='inner'
+                    ).reset_index()
+                    mpra_r = spearman(df_j_targ['pred'], df_j_targ['measured'])
+                    log_metrics["mpra_r"] = mpra_r
 
             log_metrics["combined/valid_r"] = combined_valid_r
             if self.use_wandb:

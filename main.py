@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import torch
+import pandas as pd
 from datetime import datetime
 
 from data import create_saluki_dataloaders
@@ -104,6 +105,10 @@ def main():
     params_model = params.get('model', {})
     params_train = params.get('train', {})
     data_dirs = params.get('data_dirs')
+    mpra_data_path = '/s/project/ml4rg_students/2026/project03/saluki_paper/Fig6_S7/Siegel_testSet/'
+    df_reporter = pd.read_table(mpra_data_path+"BTV_construct.txt.gz", index_col=0, header=None, compression='gzip')
+    df_mpras = pd.read_table(mpra_data_path+f"fastUTR_mpra.txt.gz", header=None, compression='gzip')
+
     species_names = list(data_dirs.keys())
     train_data = []
     eval_data = []
@@ -128,10 +133,13 @@ def main():
         train_dataloaders=train_data,
         eval_dataloaders=eval_data,
         params=params_train,
+        params_model=params_model,
         device=args.device,
         species_names=species_names,
         wandb_project=args.wandb_project,
-        run_name=args.run_name
+        run_name=args.run_name,
+        df_reporter=df_reporter,
+        df_mpras=df_mpras
     )
 
     # Fit

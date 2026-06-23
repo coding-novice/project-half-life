@@ -6,7 +6,7 @@
     "kernel_size": 5,
     "dropout": 0.3,
     "num_layers": 6,
-    "heads": 2,
+    "heads": 13,
     "ln_epsilon": 0.007,
     "bn_momentum": 0.9,
     "bn_epsilon": 0.001,
