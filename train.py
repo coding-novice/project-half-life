@@ -100,6 +100,9 @@ class SalukiTrainer:
         self.num_datasets = len(self.train_dataloaders)
         self.species_names = species_names if species_names else [f"species_{i}" for i in range(self.num_datasets)]
         
+        for name, dl in zip(self.species_names, self.train_dataloaders):
+                    print(f"{name}: {len(dl.dataset)} train samples")
+
         self.use_wandb = wandb_project is not None
         if self.use_wandb:
             assert run_name is not None
@@ -125,8 +128,7 @@ class SalukiTrainer:
             betas=(self.params.get('adam_beta1', 0.90), self.params.get('adam_beta2', 0.998))
         )
         
-        epoch_samples_limit = 0  # TODO: move defining this value to a config list later
-        
+        epoch_samples_limit = 21141 # human: 10221 train samples // mouse: 10920 train samples
         if epoch_samples_limit == 0:
             num_core_species = min(2, self.num_datasets)
             epoch_samples_limit = sum(len(self.train_dataloaders[i].dataset) for i in range(num_core_species))
