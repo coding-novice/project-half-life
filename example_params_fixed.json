@@ -25,6 +25,17 @@
   },
   "data_dirs": {
     "human": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_human.hg38.hg38.tsv",
-    "mouse": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_mouse.mm10.mm10.tsv"
+    "mouse": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_mouse.mm10.mm10.tsv",
+    "bat": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_bat.hg38.HLrouAeg4.tsv",
+    "cattle": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_cattle.hg38.bosTau9.tsv",
+    "dog": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_dog.hg38.canFam6.tsv",
+    "hare": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_hare.hg38.HLlepYar1.tsv",
+    "horse": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_horse.hg38.HLequCaba4.tsv",
+    "marmoset": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_marmoset.hg38.HLcalJacc6.tsv",
+    "pig": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_pig.hg38.HLsusScro12.tsv",
+    "rabbit": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_rabbit.hg38.HLoryCuni5.tsv",
+    "rat": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_rat.hg38.HLratNor8.tsv",
+    "rhesus": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_rhesus.hg38.HLmacMula11.tsv",
+    "whale": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_whale.hg38.HLmegNova3.tsv"
   }
 }

@@ -102,7 +102,12 @@ def main():
         with open(args.params_file, 'r') as params_open:
             params = json.load(params_open)
 
+    print('DEBUG_MS: got to params')
     params_model = params.get('model', {})
+    if params_model['heads'] != len(params['data_dirs']):
+        raise ValueError(
+            f"Number of heads vs number of datasets mismatch: {params_model['heads']} heads initialized, but {len(params['data_dirs'])} datasets provided"
+        )
     params_train = params.get('train', {})
     data_dirs = params.get('data_dirs')
     mpra_data_path = '/s/project/ml4rg_students/2026/project03/saluki_paper/Fig6_S7/Siegel_testSet/'
@@ -112,7 +117,7 @@ def main():
     species_names = list(data_dirs.keys())
     train_data = []
     eval_data = []
-
+    print('DEBUG_MS: initializing dataloades...')
     # Initialize dataloaders
     train_data, eval_data = create_saluki_dataloaders(
         species_tsvs=data_dirs,
@@ -123,10 +128,14 @@ def main():
         drop_last=True,
         include_test=False
     )
-
+    print('DEBUG_MS: initialized dataloades')
     # Initialize model
     model = SalukiModel(**params_model)
 
+    if species_names[0] != 'human' or species_names[1] != 'mouse':
+        raise ValueError(
+            f"The evaluation code assumes that the 1st dataset is human and the 2nd one is mouse. Currently: {species_names[0]}, {species_names[1]}"
+        )
     # Initialize trainer
     trainer = SalukiTrainer(
         model=model,
@@ -141,7 +150,7 @@ def main():
         df_reporter=df_reporter,
         df_mpras=df_mpras
     )
-
+    print('DEBUG_MS: initialized trainer, started training...')
     # Fit
     trainer.train(save_path=save_path, checkpoint_path=checkpoint_path, resume_from=args.resume_checkpoint_path)
 

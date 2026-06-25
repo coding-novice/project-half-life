@@ -128,7 +128,9 @@ class SalukiTrainer:
             betas=(self.params.get('adam_beta1', 0.90), self.params.get('adam_beta2', 0.998))
         )
         
-        epoch_samples_limit = 21141 # human: 10221 train samples // mouse: 10920 train samples
+        # epoch_samples_limit = 21141 # human: 10221 train samples // mouse: 10920 train samples
+        epoch_samples_limit = sum(len(self.train_dataloaders[i].dataset) for i in range(params_model['heads']))
+        print(f"DEBUG_DL: samples per epoch: {epoch_samples_limit} across {params_model['heads']} species")
         if epoch_samples_limit == 0:
             num_core_species = min(2, self.num_datasets)
             epoch_samples_limit = sum(len(self.train_dataloaders[i].dataset) for i in range(num_core_species))
@@ -233,6 +235,8 @@ class SalukiTrainer:
                 # Report the MSE data loss only, so train_loss is comparable to valid_loss.
                 epoch_losses[di] += mse_loss.item()
                 epoch_steps[di] += 1
+
+                self.wandb_run.log({'lr': self.optimizer.param_groups[0]["lr"]})
                 
             print(f"Epoch {epoch} - {time.time() - t0:.1f}s")
             
@@ -242,7 +246,8 @@ class SalukiTrainer:
             log_metrics = {}
             
             with torch.no_grad():
-                for di in range(self.num_datasets):
+                # for di in range(self.num_datasets):
+                for di in range(2): # Assumes the 1st species is human, the 2nd is mouse. Handled in the main.py
                     val_loss = 0.0
                     all_preds = []
                     all_targets = []
@@ -255,8 +260,8 @@ class SalukiTrainer:
                         loss = self.loss_fn(pred, y)
                         
                         val_loss += loss.item()
-                        all_preds.append(pred)
-                        all_targets.append(y)
+                        all_preds.append(pred.cpu())
+                        all_targets.append(y.cpu())
                         
                     val_loss /= max(1, len(self.eval_dataloaders[di]))
                     train_loss = epoch_losses[di] / max(1, epoch_steps[di])

@@ -14,6 +14,6 @@ echo "SLURM_JOB_ID: $SLURM_JOB_ID"
 
 python3 main.py \
     example_params_fixed.json \
-    -o outputs/out_setup_2 \
+    -o outputs/out_setup_13sp \
     --wandb_project saluki_pytorch \
-    --run_name test_run_2
+    --run_name 13sp_run
