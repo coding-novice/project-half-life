@@ -132,10 +132,10 @@ def main():
     # Initialize model
     model = SalukiModel(**params_model)
 
-    if species_names[0] != 'human' or species_names[1] != 'mouse':
-        raise ValueError(
-            f"The evaluation code assumes that the 1st dataset is human and the 2nd one is mouse. Currently: {species_names[0]}, {species_names[1]}"
-        )
+    # if species_names[0] != 'human' or species_names[1] != 'mouse':
+    #     raise ValueError(
+    #         f"The evaluation code assumes that the 1st dataset is human and the 2nd one is mouse. Currently: {species_names[0]}, {species_names[1]}"
+    #     )
     # Initialize trainer
     trainer = SalukiTrainer(
         model=model,

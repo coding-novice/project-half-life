@@ -166,7 +166,9 @@ class SalukiTrainer:
         species_samples = [len(dl.dataset) for dl in self.train_dataloaders]
         total_samples = sum(species_samples)
         species_weights = [s / total_samples for s in species_samples]
-        
+        human_id = self.species_names.index('human')
+        mouse_id = self.species_names.index('mouse')
+
         start_epoch = 0
         best_valid_r = -float('inf')
         unimproved = 0
@@ -236,7 +238,8 @@ class SalukiTrainer:
                 epoch_losses[di] += mse_loss.item()
                 epoch_steps[di] += 1
 
-                self.wandb_run.log({'lr': self.optimizer.param_groups[0]["lr"]})
+                # if self.use_wandb:
+                #     self.wandb_run.log({'lr': self.optimizer.param_groups[0]["lr"]})
                 
             print(f"Epoch {epoch} - {time.time() - t0:.1f}s")
             
@@ -247,7 +250,7 @@ class SalukiTrainer:
             
             with torch.no_grad():
                 # for di in range(self.num_datasets):
-                for di in range(2): # Assumes the 1st species is human, the 2nd is mouse. Handled in the main.py
+                for di in [human_id, mouse_id]:
                     val_loss = 0.0
                     all_preds = []
                     all_targets = []
@@ -292,7 +295,7 @@ class SalukiTrainer:
                         batch[0,0:len(myseq),0:4] = dna_io.dna_1hot(myseq)
                         batch[0,0:len(coding),4] = coding
                         batch = torch.from_numpy(batch).float().to(self.device)
-                        pred = self.model(batch)
+                        pred = self.model(batch, species_index=human_id)
                         df_perf['seq'].append(i)
                         df_perf['pred'].append(pred[0][0].cpu().numpy())
 
@@ -302,7 +305,7 @@ class SalukiTrainer:
                     ).reset_index()
                     mpra_r = spearman(df_j_targ['pred'], df_j_targ['measured'])
                     log_metrics["mpra_r"] = mpra_r
-
+                    print(f"  human MPRA performance: {mpra_r:.4f}")
             log_metrics["combined/valid_r"] = combined_valid_r
             if self.use_wandb:
                 self.wandb_run.log(log_metrics, step=epoch)
