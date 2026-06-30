@@ -117,6 +117,15 @@ class SalukiTrainer:
         self.train_epochs_min = self.params.get('train_epochs_min', 100)
         self.train_epochs_max = self.params.get('train_epochs_max', 250)
         
+        # AMP setup. amp_dtype in {"none", "bf16", "fp16"}; default "none" (fp32).
+        amp_dtype_str = str(self.params.get('amp_dtype', 'none')).lower()
+        self.amp_enabled = amp_dtype_str in ('bf16', 'fp16') and self.device.startswith('cuda')
+        self.amp_dtype = torch.bfloat16 if amp_dtype_str == 'bf16' else torch.float16
+        # GradScaler only meaningful for fp16; bf16 has fp32-range exponent so no scaling.
+        use_scaler = self.amp_enabled and self.amp_dtype == torch.float16
+        self.scaler = torch.cuda.amp.GradScaler(enabled=use_scaler)
+        print(f"AMP: enabled={self.amp_enabled} dtype={amp_dtype_str}")
+
         # Loss function
         self.loss_fn = nn.MSELoss()
         
@@ -181,6 +190,8 @@ class SalukiTrainer:
                 self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
                 if self.scheduler is not None and 'scheduler_state_dict' in checkpoint:
                     self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                if 'scaler_state_dict' in checkpoint:
+                    self.scaler.load_state_dict(checkpoint['scaler_state_dict'])
                 start_epoch = checkpoint['epoch'] + 1
                 best_valid_r = checkpoint['best_valid_r']
                 unimproved = checkpoint['unimproved']
@@ -218,19 +229,23 @@ class SalukiTrainer:
                 y = y.to(self.device, dtype=torch.float32)
                 
                 self.optimizer.zero_grad()
-                pred = self.model(x, species_index=di)
-                mse_loss = self.loss_fn(pred, y)
-                # Add the Keras-equivalent L2 kernel penalty to the loss so its gradient
-                # flows through Adam and is clipped together with the data gradient (this
-                # matches Keras, where the regularization loss is part of the total loss).
-                loss = mse_loss + self.model.l2_loss()
-                loss.backward()
+                with torch.autocast(device_type='cuda', dtype=self.amp_dtype, enabled=self.amp_enabled):
+                    pred = self.model(x, species_index=di)
+                    mse_loss = self.loss_fn(pred, y)
+                    # Add the Keras-equivalent L2 kernel penalty to the loss so its gradient
+                    # flows through Adam and is clipped together with the data gradient (this
+                    # matches Keras, where the regularization loss is part of the total loss).
+                    loss = mse_loss + self.model.l2_loss()
+                self.scaler.scale(loss).backward()
 
-                # Gradient Clipping
+                # Gradient Clipping. Unscale first so clip_grad_norm_ sees unscaled
+                # gradients (no-op when the scaler is disabled, i.e. none/bf16).
                 if 'global_clipnorm' in self.params:
+                    self.scaler.unscale_(self.optimizer)
                     nn.utils.clip_grad_norm_(self.model.parameters(), self.params['global_clipnorm'])
 
-                self.optimizer.step()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
                 if self.scheduler is not None:
                     self.scheduler.step()
 
@@ -325,6 +340,7 @@ class SalukiTrainer:
                 'epoch': epoch,
                 'model_state_dict': self.model.state_dict(),
                 'optimizer_state_dict': self.optimizer.state_dict(),
+                'scaler_state_dict': self.scaler.state_dict(),
                 'best_valid_r': best_valid_r,
                 'unimproved': unimproved,
                 'torch_rng_state': torch.get_rng_state(),

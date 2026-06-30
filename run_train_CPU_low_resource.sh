@@ -3,8 +3,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=64G
-#SBATCH --gres=gpu:1
+#SBATCH --mem=32G
+#SBATCH --time=00:10:00
 #SBATCH --output=logs/%j.log
 #SBATCH --error=logs/%j.err
 #SBATCH --partition=student_project
@@ -18,6 +18,6 @@ conda activate saluki_pytorch
 
 python3 main.py \
     example_params_fixed.json \
-    -o outputs/out_setup_13sp \
+    -o outputs/out_setup_2 \
     --wandb_project saluki_pytorch \
-    --run_name test_run_F_2_epochs
+    --run_name test_run_2

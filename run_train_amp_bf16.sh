@@ -17,7 +17,7 @@ source $(conda info --base)/etc/profile.d/conda.sh
 conda activate saluki_pytorch
 
 python3 main.py \
-    example_params_fixed.json \
-    -o outputs/out_setup_13sp \
+    example_params_fixed_amp_bf16.json \
+    -o outputs/out_setup_2 \
     --wandb_project saluki_pytorch \
-    --run_name test_run_F_2_epochs
+    --run_name test_run_F_amp_bf16

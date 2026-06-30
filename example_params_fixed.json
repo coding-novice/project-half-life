@@ -6,7 +6,7 @@
     "kernel_size": 5,
     "dropout": 0.3,
     "num_layers": 6,
-    "heads": 13,
+    "heads": 2,
     "ln_epsilon": 0.007,
     "bn_momentum": 0.9,
     "bn_epsilon": 0.001,
@@ -21,7 +21,8 @@
     "global_clipnorm": 0.2,
     "patience": 25,
     "train_epochs_min": 1,
-    "train_epochs_max": 1000
+    "train_epochs_max": 2,
+    "amp_dtype": "bf16"
   },
   "data_dirs": {
     "human": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_human.hg38.hg38.tsv",
