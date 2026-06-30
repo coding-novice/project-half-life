@@ -1,0 +1,33 @@
+{
+  "model": {
+    "seq_length": 12288,
+    "seq_depth": 6,
+    "filters": 64,
+    "kernel_size": 5,
+    "dropout": 0.3,
+    "num_layers": 6,
+    "heads": 2,
+    "ln_epsilon": 0.007,
+    "bn_momentum": 0.9,
+    "bn_epsilon": 0.001,
+    "l2_scale": 0.001,
+    "augment_shift": 3
+  },
+  "train": {
+    "batch_size": 1024,
+    "learning_rate": 0.0004,
+    "adam_beta1": 0.9,
+    "adam_beta2": 0.998,
+    "global_clipnorm": 0.2,
+    "optimizer_mode": "AdamW+all_params",
+    "weight_decay": 0.001,
+    "patience": 25,
+    "train_epochs_min": 1,
+    "train_epochs_max": 150,
+    "amp_dtype": "none"
+  },
+  "data_dirs": {
+    "human": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_human.hg38.hg38.tsv",
+    "mouse": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_mouse.mm10.mm10.tsv"
+  }
+}

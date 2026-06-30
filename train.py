@@ -129,13 +129,63 @@ class SalukiTrainer:
         # Loss function
         self.loss_fn = nn.MSELoss()
         
-        # Optimizer setup based on TF's params.json
+        # Optimizer setup based on TF's params.json.
+        #
+        # `optimizer_mode` (params.json -> train) selects how weight decay is applied.
+        # It is tolerant to spacing/case/'+'/'_'. Three behaviours:
+        #   "Adam_with_L2loss"        (default) -- plain Adam + the coupled L2 penalty
+        #                                          (model.l2_loss()) added to the loss.
+        #                                          This is the faithful Saluki behaviour.
+        #   "AdamW+parameter_groups"  -- AdamW with DECOUPLED weight decay applied only
+        #                                to the kernels Saluki regularized
+        #                                (model.regularized_parameters()); biases, norms,
+        #                                output heads and the GRU recurrent kernel get
+        #                                weight_decay=0. The coupled L2 term is dropped.
+        #   "AdamW+all_params"        -- AdamW with decoupled weight decay on *every*
+        #                                parameter. The coupled L2 term is dropped.
+        #
+        # NOTE: decoupled weight decay is NOT equivalent to the coupled L2 penalty, so
+        # `weight_decay` (train) is a separate hyperparameter that must be re-tuned; it
+        # defaults to l2_scale only as a starting point.
         lr = self.params.get('learning_rate', 0.0001)
-        self.optimizer = optim.Adam(
-            self.model.parameters(), 
-            lr=lr,
-            betas=(self.params.get('adam_beta1', 0.90), self.params.get('adam_beta2', 0.998))
-        )
+        betas = (self.params.get('adam_beta1', 0.90), self.params.get('adam_beta2', 0.998))
+
+        mode_raw = self.params.get('optimizer_mode', 'Adam_with_L2loss')
+        mode = str(mode_raw).strip().lower().replace('+', ' ').replace('_', ' ')
+        weight_decay = self.params.get('weight_decay', self.params_model.get('l2_scale', 0.0))
+
+        if 'adamw' in mode and 'group' in mode:
+            # AdamW, decoupled weight decay on the Saluki-regularized kernels only.
+            self.use_l2_loss = False
+            decay_params = self.model.regularized_parameters()
+            decay_ids = {id(p) for p in decay_params}
+            no_decay_params = [p for p in self.model.parameters() if id(p) not in decay_ids]
+            self.optimizer = optim.AdamW(
+                [
+                    {'params': decay_params, 'weight_decay': weight_decay},
+                    {'params': no_decay_params, 'weight_decay': 0.0},
+                ],
+                lr=lr, betas=betas,
+            )
+            print(f"Optimizer: AdamW (decoupled wd={weight_decay} on {len(decay_params)} "
+                  f"regularized kernels; {len(no_decay_params)} params undecayed); L2-in-loss OFF")
+        elif 'adamw' in mode:
+            # AdamW, decoupled weight decay on all parameters.
+            self.use_l2_loss = False
+            self.optimizer = optim.AdamW(
+                self.model.parameters(), lr=lr, betas=betas, weight_decay=weight_decay
+            )
+            print(f"Optimizer: AdamW (decoupled wd={weight_decay} on ALL params); L2-in-loss OFF")
+        elif 'adam' in mode:
+            # Plain Adam + coupled L2 penalty added to the loss (faithful Saluki).
+            self.use_l2_loss = True
+            self.optimizer = optim.Adam(self.model.parameters(), lr=lr, betas=betas)
+            print("Optimizer: Adam + coupled L2 penalty in loss (faithful Saluki)")
+        else:
+            raise ValueError(
+                f"Unrecognized optimizer_mode {mode_raw!r}. Expected one of "
+                "'Adam_with_L2loss', 'AdamW+parameter_groups', 'AdamW+all_params'."
+            )
         
         # epoch_samples_limit = 21141 # human: 10221 train samples // mouse: 10920 train samples
         epoch_samples_limit = sum(len(self.train_dataloaders[i].dataset) for i in range(params_model['heads']))
@@ -232,10 +282,12 @@ class SalukiTrainer:
                 with torch.autocast(device_type='cuda', dtype=self.amp_dtype, enabled=self.amp_enabled):
                     pred = self.model(x, species_index=di)
                     mse_loss = self.loss_fn(pred, y)
-                    # Add the Keras-equivalent L2 kernel penalty to the loss so its gradient
-                    # flows through Adam and is clipped together with the data gradient (this
-                    # matches Keras, where the regularization loss is part of the total loss).
-                    loss = mse_loss + self.model.l2_loss()
+                    # In "Adam_with_L2loss" mode, add the Keras-equivalent L2 kernel penalty
+                    # to the loss so its gradient flows through Adam and is clipped together
+                    # with the data gradient (this matches Keras, where the regularization
+                    # loss is part of the total loss). In the AdamW modes the decay is handled
+                    # by the optimizer instead, so we must NOT add it here (would double-count).
+                    loss = mse_loss + self.model.l2_loss() if self.use_l2_loss else mse_loss
                 self.scaler.scale(loss).backward()
 
                 # Gradient Clipping. Unscale first so clip_grad_norm_ sees unscaled

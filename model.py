@@ -145,6 +145,22 @@ class SalukiModel(nn.Module):
         reg = reg + self.penultimate_dense.weight.pow(2).sum()
         return self.l2_scale * reg
 
+    def regularized_parameters(self):
+        """The exact weight tensors Saluki regularizes (same set as `l2_loss`):
+        the conv kernels, the GRU *input* kernel, and the penultimate dense --
+        NOT the output heads, biases, norm params, or the GRU recurrent kernel.
+
+        Used by the trainer to build AdamW parameter groups so that decoupled
+        weight decay (optimizer_mode="AdamW+parameter_groups") hits exactly the
+        same kernels the coupled L2 penalty would. Keep this in sync with
+        `l2_loss()`."""
+        params = [self.initial_conv.weight]
+        for block in self.middle_blocks:
+            params.append(block['conv'].weight)
+        params.append(self.gru.weight_ih_l0)
+        params.append(self.penultimate_dense.weight)
+        return params
+
     def forward(self, x, species_index=0):
         # x shape: (batch_size, 12288, 6)
 
