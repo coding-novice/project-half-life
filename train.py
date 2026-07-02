@@ -9,6 +9,7 @@ import torch.optim as optim
 import numpy as np
 import pandas as pd
 from basenji import dna_io
+from data import phylogenetic_weights
 
 from scipy.stats import pearsonr, spearmanr
 def pearson(x, y):
@@ -221,10 +222,15 @@ class SalukiTrainer:
         df_mpras = self.df_mpras.rename(columns={0: 'seq', 1: 'measured'}).drop(columns=2).dropna()
         print(f"DEBUG: mpra shape: {df_mpras.shape}")
 
-        # Precompute species sampling weights proportional to their dataset size
+        # Precompute species sampling weights proportional to their dataset size multiplied 
+        # by a distance weigthing based on LCA with humans.
         species_samples = [len(dl.dataset) for dl in self.train_dataloaders]
-        total_samples = sum(species_samples)
-        species_weights = [s / total_samples for s in species_samples]
+        phylo = phylogenetic_weights(self.species_names, floor=0.5)
+        combined = [n * w for n, w in zip(species_samples, phylo)]
+        total_combined = sum(combined)
+        species_weights = [c / total_combined for c in combined]
+        for name, w, p in zip(self.species_names, phylo, species_weights):
+            print(f"DEBUG_DL: {name} phylo_weight={w:.3f} sampling_prob={p:.4f}")
         human_id = self.species_names.index('human')
         mouse_id = self.species_names.index('mouse')
 

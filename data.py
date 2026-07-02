@@ -34,6 +34,39 @@ SPECIES_ORDER: Tuple[str, str] = (
     #,"bat", "cattle", "dog", "hare", "horse", "marmoset",  "pig", "rabbit", "rat", "rhesus", "whale"
 )
 
+DIVERGENCE_MYA: Mapping[str, float] = {
+    "human": 0.0,
+    "rhesus": 28.8,    # macaca
+    "marmoset": 44.0,  # callitrichidae
+    "mouse": 87.0,     # mus musculus
+    "rat": 87.0,       # muroidea
+    "rabbit": 87.0,    # leporidae
+    "hare": 87.0,      # lepus
+    "bat": 94.0,       # chiroptera
+    "cattle": 94.0,    # bos taurus
+    "dog": 94.0,       # canis familiaris
+    "horse": 94.0,     # equus
+    "pig": 94.0,       # sus domesticus
+    "whale": 94.0,     # cetacea
+}
+
+def phylogenetic_weights(
+    species_names: Sequence[str],
+    floor: float = 0.5,
+) -> List[float]:
+    max_divergence_mya = max(DIVERGENCE_MYA.values())
+
+    weights: List[float] = []
+    for name in species_names:
+        if name == "mouse": # I'm overriding the mouse value manually because I want it have more weight since its real data rather than label transferred data.
+            weights.append(0.75)
+        else:
+            if name not in DIVERGENCE_MYA:
+                raise ValueError(f"No divergence time configured for species {name!r}")
+            d = DIVERGENCE_MYA[name]
+            weights.append(1.0 - (d / max_divergence_mya) * (1.0 - floor))
+    return weights
+
 # todo: read this in as  an argument from startup shall script / sbatch
 SPLIT_TO_FOLDS: Mapping[str, Tuple[int, ...]] = {
     "test": (0,),
