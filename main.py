@@ -112,7 +112,7 @@ def main():
     data_dirs = params.get('data_dirs')
     mpra_data_path = '/s/project/ml4rg_students/2026/project03/saluki_paper/Fig6_S7/Siegel_testSet/'
     df_reporter = pd.read_table(mpra_data_path+"BTV_construct.txt.gz", index_col=0, header=None, compression='gzip')
-    df_mpras = pd.read_table(mpra_data_path+f"fastUTR_mpra.txt.gz", header=None, compression='gzip')
+    df_mpras = pd.read_table(mpra_data_path+"fastUTR_mpra_Beas2B.txt.gz", header=None, compression='gzip')
 
     species_names = list(data_dirs.keys())
     train_data = []
