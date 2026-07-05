@@ -59,7 +59,7 @@ def phylogenetic_weights(
     weights: List[float] = []
     for name in species_names:
         if name == "mouse": # I'm overriding the mouse value manually because I want it have more weight since its real data rather than label transferred data.
-            weights.append(0.75)
+            weights.append(1.0)
         else:
             if name not in DIVERGENCE_MYA:
                 raise ValueError(f"No divergence time configured for species {name!r}")
