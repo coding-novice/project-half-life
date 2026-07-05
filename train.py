@@ -288,7 +288,8 @@ class SalukiTrainer:
         # Precompute species sampling weights proportional to their dataset size multiplied 
         # by a distance weigthing based on LCA with humans.
         species_samples = [len(dl.dataset) for dl in self.train_dataloaders]
-        phylo = phylogenetic_weights(self.species_names, floor=0.5)
+        phylo_floor = self.params.get('phylo_floor', 0.5)
+        phylo = phylogenetic_weights(self.species_names, floor=phylo_floor)
         combined = [n * w for n, w in zip(species_samples, phylo)]
         total_combined = sum(combined)
         species_weights = [c / total_combined for c in combined]
