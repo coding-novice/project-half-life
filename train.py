@@ -17,6 +17,9 @@ def pearson(x, y):
 def spearman(x, y):
     r = spearmanr(x, y)[0]
     return round(r, 4)
+def sign_concordance(x, y):
+    assert len(x) == len(y)
+    return float(np.sum((x * y) > 0) / len(x))
 
 def pearson_corrcoef(x, y):
     """Computes Pearson correlation coefficient between two 1D tensors."""
@@ -214,11 +217,11 @@ class SalukiTrainer:
 
     def train(self, save_path='model_best.pt', checkpoint_path='checkpoint.pt', resume_from=None):
         construct = self.df_reporter.values
-        seq = self.df_mpras[[0]][0].values
+        sequences_mpra = self.df_mpras[[0]][0].values
         aa_len = int(len(construct[1][0])/3)
         coding = np.append(np.zeros(len(construct[0][0])), np.tile([1,0,0], aa_len))
         reporter = construct[0]+construct[1]+construct[2]
-        df_mpras = self.df_mpras.rename(columns={0: 'seq', 1: 'measured'}).drop(columns=2).dropna()
+        df_mpras = self.df_mpras.rename(columns={0: 'seq', 1: 'measured'})
         print(f"DEBUG: mpra shape: {df_mpras.shape}")
 
         # Precompute species sampling weights proportional to their dataset size
@@ -356,7 +359,7 @@ class SalukiTrainer:
                         'seq': [],
                         'pred': []
                     }
-                    for i in seq: # iterate through all sequences
+                    for i in sequences_mpra: # iterate through all sequences
                         batch = np.zeros((1, self.params_model.get('seq_length', 12288), 6))
                         myseq = (reporter+i+construct[3])[0]
                         batch[0,0:len(myseq),0:4] = dna_io.dna_1hot(myseq)
@@ -365,14 +368,32 @@ class SalukiTrainer:
                         pred = self.model(batch, species_index=human_id)
                         df_perf['seq'].append(i)
                         df_perf['pred'].append(pred[0][0].cpu().numpy())
-
                     df_perf = pd.DataFrame(df_perf)
-                    df_j_targ = df_perf.set_index('seq').drop_duplicates().join(
-                        df_mpras.set_index('seq').drop_duplicates(), how='inner'
-                    ).reset_index()
-                    mpra_r = spearman(df_j_targ['pred'], df_j_targ['measured'])
-                    log_metrics["mpra_r"] = mpra_r
-                    print(f"  human MPRA performance: {mpra_r:.4f}")
+                    seq = df_perf["seq"].iloc[::2]
+
+                    alt = df_perf["pred"].iloc[::2].to_numpy()
+                    ref = df_perf["pred"].iloc[1::2].to_numpy()
+
+                    df_delta = pd.DataFrame({
+                        "seq": seq,
+                        "ref": ref,
+                        "alt": alt,
+                        "delta": alt - ref
+                    })
+                    df_j = df_delta.set_index('seq').join(
+                        df_mpras.set_index('seq')
+                    ).rename(columns = {
+                        'delta': 'delta_pred_pytorch'
+                    }).reset_index()
+                    df_j['delta_pred_pytorch'] = df_j['delta_pred_pytorch'].astype(float)
+                    df_j['measured'] = df_j['measured'].astype(float)
+                    mpra_r_s = spearman(df_j['delta_pred_pytorch'], df_j['measured'])
+                    mpra_r_p = pearson(df_j['delta_pred_pytorch'], df_j['measured'])
+                    mpra_r_sc = sign_concordance(df_j['delta_pred_pytorch'], df_j['measured'])
+                    log_metrics["mpra_r_s"] = mpra_r_s
+                    log_metrics["mpra_r_p"] = mpra_r_p
+                    log_metrics["mpra_r_sc"] = mpra_r_sc
+                    print(f"  human MPRA performance: Spearman = {mpra_r_s:.4f}, Pearson = {mpra_r_p:.4f}, Sign concordance = {mpra_r_sc:.4f}")
             log_metrics["combined/valid_r"] = combined_valid_r
             if self.use_wandb:
                 self.wandb_run.log(log_metrics, step=epoch)
