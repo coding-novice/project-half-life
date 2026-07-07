@@ -6,7 +6,7 @@
     "kernel_size": 5,
     "dropout": 0.3,
     "num_layers": 6,
-    "heads": 2,
+    "heads": 13,
     "ln_epsilon": 0.007,
     "bn_momentum": 0.9,
     "bn_epsilon": 0.001,
@@ -19,14 +19,14 @@
     "adam_beta1": 0.9,
     "adam_beta2": 0.998,
     "global_clipnorm": 0.2,
-    "optimizer_mode": "Adam_with_L2loss",
+    "optimizer_mode": "AdamW+all_params",
     "weight_decay": 0.001,
     "patience": 25,
     "keep_best_checkpoint": "one_overall",
     "early_stopping_metric": "one_combined_metric",
     "train_epochs_min": 1,
-    "train_epochs_max": 2,
-    "amp_dtype": "bf16"
+    "train_epochs_max": 150,
+    "amp_dtype": "none"
   },
   "data_dirs": {
     "human": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_human.hg38.hg38.tsv",

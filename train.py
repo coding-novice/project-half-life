@@ -34,6 +34,18 @@ def pearson_corrcoef(x, y):
     r = r_num / (r_den + 1e-8)
     return r
 
+def r2_score(preds, targets):
+    """Coefficient of determination R^2 = 1 - SS_res/SS_tot between two 1D tensors.
+
+    Matches basenji `metrics.R2` (for a single target): SS_res = sum((y - yhat)^2),
+    SS_tot = sum((y - mean_y)^2). Mirrors `pearson_corrcoef` above so the trainer can
+    compute train/valid R2 the same way it computes Pearson R."""
+    preds = preds.view(-1)
+    targets = targets.view(-1)
+    ss_res = torch.sum((targets - preds) ** 2)
+    ss_tot = torch.sum((targets - torch.mean(targets)) ** 2)
+    return 1.0 - ss_res / (ss_tot + 1e-8)
+
 class Cyclical1LearningRate(optim.lr_scheduler.LambdaLR):
     """
     A LearningRateSchedule that uses cyclical schedule.
@@ -119,6 +131,32 @@ class SalukiTrainer:
         self.patience = self.params.get('patience', 25)
         self.train_epochs_min = self.params.get('train_epochs_min', 100)
         self.train_epochs_max = self.params.get('train_epochs_max', 250)
+
+        # How many "best" checkpoints to keep (see TF fit2, which keeps one per species):
+        #   "one_overall"  -- single best on the combined human+mouse metric (default, = today)
+        #   "human_mouse"  -- independent best checkpoint for human and for mouse
+        #   "all_species"  -- independent best checkpoint for every species
+        self.keep_best_checkpoint = str(self.params.get('keep_best_checkpoint', 'one_overall'))
+        _keep_opts = ('one_overall', 'human_mouse', 'all_species')
+        if self.keep_best_checkpoint not in _keep_opts:
+            raise ValueError(
+                f"Unrecognized keep_best_checkpoint {self.keep_best_checkpoint!r}. "
+                f"Expected one of {_keep_opts}."
+            )
+
+        # Which metric drives early stopping (see TF fit2, which stops on min over
+        # per-species counters):
+        #   "one_combined_metric" -- stop when the combined human+mouse metric stalls (default, = today)
+        #   "human"               -- stop when the human metric stalls
+        #   "human_mouse"         -- stop only once BOTH human and mouse have stalled
+        #   "all_species"         -- stop only once EVERY species has stalled (TF fit2 rule)
+        self.early_stopping_metric = str(self.params.get('early_stopping_metric', 'one_combined_metric'))
+        _es_opts = ('one_combined_metric', 'human', 'human_mouse', 'all_species')
+        if self.early_stopping_metric not in _es_opts:
+            raise ValueError(
+                f"Unrecognized early_stopping_metric {self.early_stopping_metric!r}. "
+                f"Expected one of {_es_opts}."
+            )
         
         # AMP setup. amp_dtype in {"none", "bf16", "fp16"}; default "none" (fp32).
         amp_dtype_str = str(self.params.get('amp_dtype', 'none')).lower()
@@ -232,9 +270,27 @@ class SalukiTrainer:
         mouse_id = self.species_names.index('mouse')
 
         start_epoch = 0
+        # Combined (human+mouse) tracker -- drives "one_overall" checkpointing and
+        # "one_combined_metric" early stopping (unchanged from before).
         best_valid_r = -float('inf')
         unimproved = 0
-        
+        # Per-species trackers -- drive the "human"/"human_mouse"/"all_species" modes.
+        # Maintained every epoch regardless of the active mode (see TF fit2).
+        valid_best = [-float('inf')] * self.num_datasets
+        unimproved_species = [0] * self.num_datasets
+
+        # Per-species best checkpoint file path derived from save_path
+        # (save_path is ".../model_best_{id}.pt"; per species -> ".../model_best_{species}_{id}.pt").
+        def species_best_path(species_name):
+            d, b = os.path.dirname(save_path), os.path.basename(save_path)
+            prefix = 'model_best_'
+            if b.startswith(prefix):
+                b = prefix + f"{species_name}_" + b[len(prefix):]
+            else:
+                root, ext = os.path.splitext(b)
+                b = f"{root}_{species_name}{ext}"
+            return os.path.join(d, b)
+
         if resume_from is not None:
             if os.path.isfile(resume_from):
                 print(f"Resuming from checkpoint: {resume_from}")
@@ -248,7 +304,10 @@ class SalukiTrainer:
                 start_epoch = checkpoint['epoch'] + 1
                 best_valid_r = checkpoint['best_valid_r']
                 unimproved = checkpoint['unimproved']
-                
+                # Per-species trackers (fall back gracefully for older checkpoints).
+                valid_best = checkpoint.get('valid_best', [-float('inf')] * self.num_datasets)
+                unimproved_species = checkpoint.get('unimproved_species', [0] * self.num_datasets)
+
                 # Restore RNG states
                 torch.set_rng_state(checkpoint['torch_rng_state'])
                 if checkpoint['torch_cuda_rng_state'] is not None and torch.cuda.is_available():
@@ -260,10 +319,22 @@ class SalukiTrainer:
                 raise FileNotFoundError(f"Checkpoint file not found: {resume_from}")
         
         for epoch in range(start_epoch, self.train_epochs_max):
-            if epoch >= self.train_epochs_min and unimproved > self.patience:
-                print(f"Early stopping at epoch {epoch}")
-                break
-                
+            # Early stopping. The counter(s) consulted depend on early_stopping_metric.
+            # "all_species"/"human_mouse" mirror TF fit2's np.min(unimproved) > patience:
+            # stop only once EVERY monitored species has stalled for > patience epochs.
+            if epoch >= self.train_epochs_min:
+                if self.early_stopping_metric == 'one_combined_metric':
+                    stalled = unimproved > self.patience
+                elif self.early_stopping_metric == 'human':
+                    stalled = unimproved_species[human_id] > self.patience
+                elif self.early_stopping_metric == 'human_mouse':
+                    stalled = min(unimproved_species[human_id], unimproved_species[mouse_id]) > self.patience
+                else:  # 'all_species'
+                    stalled = min(unimproved_species) > self.patience
+                if stalled:
+                    print(f"Early stopping at epoch {epoch} (early_stopping_metric={self.early_stopping_metric})")
+                    break
+
             self.model.train()
             
             # Initialize infinite iterators for all dataloaders
@@ -272,7 +343,11 @@ class SalukiTrainer:
             t0 = time.time()
             epoch_losses = [0.0] * self.num_datasets
             epoch_steps = [0] * self.num_datasets
-            
+            # Streaming accumulation of training-step predictions (dropout +
+            # stochastic-shift ON) so train_r/train_r2 match TF fit2's streaming metrics.
+            train_preds = [[] for _ in range(self.num_datasets)]
+            train_targets = [[] for _ in range(self.num_datasets)]
+
             for step in range(self.train_steps_per_epoch):
                 di = np.random.choice(self.num_datasets, p=species_weights)
                 x, y = next(train_iters[di])
@@ -307,6 +382,8 @@ class SalukiTrainer:
                 # Report the MSE data loss only, so train_loss is comparable to valid_loss.
                 epoch_losses[di] += mse_loss.item()
                 epoch_steps[di] += 1
+                train_preds[di].append(pred.detach().float().cpu())
+                train_targets[di].append(y.detach().float().cpu())
 
                 # if self.use_wandb:
                 #     self.wandb_run.log({'lr': self.optimizer.param_groups[0]["lr"]})
@@ -315,44 +392,64 @@ class SalukiTrainer:
             
             # Validation phase
             self.model.eval()
-            combined_valid_r = 0.0
             log_metrics = {}
-            
+            valid_r_all = [float('nan')] * self.num_datasets  # per-species valid Pearson
+
             with torch.no_grad():
-                # for di in range(self.num_datasets):
-                for di in [human_id, mouse_id]:
+                # Validate EVERY species for logging/observability. The training
+                # decisions (combined metric, computed after this loop) still use
+                # human+mouse only.
+                for di in range(self.num_datasets):
                     val_loss = 0.0
                     all_preds = []
                     all_targets = []
-                    
+
                     for x, y in self.eval_dataloaders[di]:
                         x = x.to(self.device, dtype=torch.float32)
                         y = y.to(self.device, dtype=torch.float32)
-                        
+
                         pred = self.model(x, species_index=di)
                         loss = self.loss_fn(pred, y)
-                        
+
                         val_loss += loss.item()
                         all_preds.append(pred.cpu())
                         all_targets.append(y.cpu())
-                        
+
                     val_loss /= max(1, len(self.eval_dataloaders[di]))
                     train_loss = epoch_losses[di] / max(1, epoch_steps[di])
-                    
+
                     all_preds = torch.cat(all_preds)
                     all_targets = torch.cat(all_targets)
                     val_r = pearson_corrcoef(all_preds, all_targets).item()
-                    
-                    # adding up pearson corr scores from all species into a combined score:
-                    combined_valid_r += val_r
-                    
+                    val_r2 = r2_score(all_preds, all_targets).item()
+                    valid_r_all[di] = val_r
+
+                    # Train R / R2 from the streaming training-step predictions (TF fit2
+                    # style; dropout + stochastic-shift were ON). NaN if this species was
+                    # never sampled this epoch.
+                    if epoch_steps[di] > 0:
+                        tr_preds = torch.cat(train_preds[di])
+                        tr_targets = torch.cat(train_targets[di])
+                        train_r = pearson_corrcoef(tr_preds, tr_targets).item()
+                        train_r2 = r2_score(tr_preds, tr_targets).item()
+                    else:
+                        train_r = float('nan')
+                        train_r2 = float('nan')
+
                     species_name = self.species_names[di]
                     log_metrics[f"{species_name}/train_loss"] = train_loss
+                    log_metrics[f"{species_name}/train_r"] = train_r
+                    log_metrics[f"{species_name}/train_r2"] = train_r2
                     log_metrics[f"{species_name}/valid_loss"] = val_loss
                     log_metrics[f"{species_name}/valid_r"] = val_r
+                    log_metrics[f"{species_name}/valid_r2"] = val_r2
                     log_metrics[f"{species_name}/train_batches"] = epoch_steps[di]
-                    
-                    print(f"  {species_name} (Data {di}) - train_loss: {train_loss:.4f} - valid_loss: {val_loss:.4f} - valid_r: {val_r:.4f}")
+
+                    print(f"  {species_name} (Data {di}) - train_loss: {train_loss:.4f} - train_r: {train_r:.4f} - train_r2: {train_r2:.4f} - valid_loss: {val_loss:.4f} - valid_r: {val_r:.4f} - valid_r2: {val_r2:.4f}")
+
+                # Combined decision metric = sum of human+mouse valid_r (unchanged; drives
+                # one_overall checkpointing and one_combined_metric early stopping).
+                combined_valid_r = valid_r_all[human_id] + valid_r_all[mouse_id]
 
                 if (epoch <= 20 and epoch % 5 == 0) or (epoch > 20 and epoch % 10 == 0):
                     df_perf = {
@@ -398,15 +495,40 @@ class SalukiTrainer:
             if self.use_wandb:
                 self.wandb_run.log(log_metrics, step=epoch)
 
-            # Checkpoint best model
-            if combined_valid_r > best_valid_r:
-                print('  - best!', flush=True)
-                unimproved = 0
+            # --- Update improvement trackers. Both the combined and the per-species
+            #     trackers are updated every epoch, independent of the active mode, so
+            #     keep_best_checkpoint and early_stopping_metric can be chosen freely. ---
+            combined_improved = combined_valid_r > best_valid_r
+            if combined_improved:
                 best_valid_r = combined_valid_r
-                torch.save(self.model.state_dict(), save_path)
+                unimproved = 0
             else:
-                # increment nr of epochs without improvement - early stopping if the nr exceeds the patience param
                 unimproved += 1
+
+            species_improved = [False] * self.num_datasets
+            for di in range(self.num_datasets):
+                if valid_r_all[di] > valid_best[di]:
+                    valid_best[di] = valid_r_all[di]
+                    unimproved_species[di] = 0
+                    species_improved[di] = True
+                else:
+                    unimproved_species[di] += 1
+
+            # --- Save best checkpoint(s) according to keep_best_checkpoint ---
+            if self.keep_best_checkpoint == 'one_overall':
+                if combined_improved:
+                    print('  - best (combined human+mouse)!', flush=True)
+                    torch.save(self.model.state_dict(), save_path)
+            elif self.keep_best_checkpoint == 'human_mouse':
+                for di in (human_id, mouse_id):
+                    if species_improved[di]:
+                        print(f"  - best ({self.species_names[di]})!", flush=True)
+                        torch.save(self.model.state_dict(), species_best_path(self.species_names[di]))
+            else:  # 'all_species'
+                for di in range(self.num_datasets):
+                    if species_improved[di]:
+                        print(f"  - best ({self.species_names[di]})!", flush=True)
+                        torch.save(self.model.state_dict(), species_best_path(self.species_names[di]))
 
             # Save full training checkpoint at the end of each epoch for resuming
             checkpoint_state = {
@@ -416,6 +538,8 @@ class SalukiTrainer:
                 'scaler_state_dict': self.scaler.state_dict(),
                 'best_valid_r': best_valid_r,
                 'unimproved': unimproved,
+                'valid_best': valid_best,
+                'unimproved_species': unimproved_species,
                 'torch_rng_state': torch.get_rng_state(),
                 'torch_cuda_rng_state': torch.cuda.get_rng_state() if torch.cuda.is_available() else None,
                 'numpy_rng_state': np.random.get_state(),

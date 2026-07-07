@@ -14,8 +14,8 @@
     "augment_shift": 3
   },
   "train": {
-    "batch_size": 2048,
-    "learning_rate": 0.0004,
+    "batch_size": 1024,
+    "learning_rate": 0.001,
     "adam_beta1": 0.9,
     "adam_beta2": 0.998,
     "global_clipnorm": 0.2,
@@ -23,7 +23,7 @@
     "weight_decay": 0.001,
     "patience": 25,
     "train_epochs_min": 1,
-    "train_epochs_max": 2,
+    "train_epochs_max": 150,
     "amp_dtype": "none"
   },
   "data_dirs": {
