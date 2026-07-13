@@ -5,10 +5,37 @@ ML4RG project @TUM
 
 Parameters live under two top-level sections, `model` and `train`, plus a
 top-level `data_dirs` dict mapping species name -> path to that species' TSV
-(e.g. `"human": ".../saluki_human.hg38.hg38.tsv"`). Species names matter: the
-trainer looks up `"human"` and `"mouse"` by name (not by position) for the
+(e.g. `"human": ".../saluki_human.hg38.hg38.tsv"`) and the optional top-level
+reproducibility keys `seed` / `deterministic` (see below). Species names matter:
+the trainer looks up `"human"` and `"mouse"` by name (not by position) for the
 combined metric, so both keys must be present even in multi-species (e.g.
 13-species) runs.
+
+### Reproducibility — top-level parameters
+
+- **`seed`** — integer seed applied to `random`, `numpy`, `torch`, and CUDA,
+  plus a dedicated `torch.Generator` for the train-loader shuffle. It is set at
+  the very start of `run_training`, **before** the model and dataloaders are
+  built, so an entire run becomes reproducible: weight initialization, train
+  shuffle order, the per-step species-interleaving draw (`np.random.choice`),
+  stochastic-shift augmentation, and dropout are all deterministic.
+  **If `seed` is omitted, a default of `42` is used** (`DEFAULT_SEED` in
+  `main.py`) — so every run is reproducible out of the box; set `seed`
+  explicitly only to pin or vary it. This applies to **both** single training
+  runs (`main.py`, e.g. `run_train_*.sh`) and **every** sweep trial
+  (`sweep_train.py`), because both go through the same `run_training`; in a sweep
+  the seed is held fixed across trials so score differences reflect the swept
+  hyperparameters rather than initialization noise. On resume
+  (`--resume_checkpoint_path`), the checkpoint's saved RNG state takes over, so
+  the run continues its original random stream instead of re-seeding.
+- **`deterministic`** — optional boolean (**default `false`**). When `true`, also
+  forces cuDNN into deterministic mode (`cudnn.deterministic=True`,
+  `cudnn.benchmark=False`, `torch.use_deterministic_algorithms(True,
+  warn_only=True)`) for near-bitwise GPU reproducibility. Left off by default
+  because it can slow training and the cuDNN GRU may warn or fall back under
+  strict determinism; `seed` alone already removes the dominant run-to-run
+  variance, since weights initialize on CPU via `torch.manual_seed` independently
+  of any GPU nondeterminism.
 
 ### `train` — options with multiple predefined values
 

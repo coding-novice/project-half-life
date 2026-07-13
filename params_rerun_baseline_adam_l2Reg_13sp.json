@@ -26,7 +26,7 @@
     "keep_best_checkpoint": "one_overall",
     "early_stopping_metric": "one_combined_metric",
     "train_epochs_min": 1,
-    "train_epochs_max": 150,
+    "train_epochs_max": 500,
     "amp_dtype": "none"
   },
   "data_dirs": {

@@ -1,0 +1,37 @@
+# SMOKE-TEST sweep: runs ONE short trial to validate the wandb wiring end-to-end
+# (config injection -> params override -> run_training -> combined/valid_r logging).
+# It differs from sweep_saluki_13sp.yaml only in: run_cap: 1, and a command: block
+# that points --base_params at the 2-epoch trial config.
+#
+#   wandb sweep --project saluki_sweep_trial --entity project-half-life sweep_saluki_trial.yaml
+#   sbatch run_sweep_agent.sh project-half-life/saluki_sweep_trial/<SWEEP_ID>
+
+program: sweep_train.py
+method: bayes
+run_cap: 1                       # stop the whole sweep after one trial
+
+metric:
+  name: "combined/valid_r"
+  goal: maximize
+
+parameters:
+  learning_rate:
+    distribution: log_uniform_values
+    min: 1.0e-5
+    max: 3.0e-3
+  weight_decay:
+    distribution: log_uniform_values
+    min: 1.0e-6
+    max: 1.0e-1
+  batch_size:
+    values: [64, 128, 256, 512, 1024]
+
+# Inject --base_params (wandb's default command does NOT pass it). The swept
+# --learning_rate/--batch_size/--weight_decay still arrive via ${args}.
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --base_params
+  - example_params_sweep_trial_13sp.json
+  - ${args}

@@ -148,7 +148,12 @@ def _make_dataloader(
     num_workers: int,
     pin_memory: bool,
     drop_last: bool,
+    generator: Optional[torch.Generator] = None,
 ) -> DataLoader:
+    # A seeded ``generator`` makes the train loader's shuffle order reproducible
+    # and decoupled from how many global-RNG draws model init happened to consume.
+    # It only affects the shuffling sampler, so we attach it to the train split
+    # only (validation/test are not shuffled).
     return DataLoader(
         dataset,
         batch_size=batch_size,
@@ -156,6 +161,7 @@ def _make_dataloader(
         num_workers=num_workers,
         pin_memory=pin_memory,
         drop_last=drop_last if split == "train" else False,
+        generator=generator if split == "train" else None,
     )
 
 
@@ -168,11 +174,16 @@ def create_saluki_dataloaders(
     pin_memory: bool = False,
     drop_last: bool = False,
     include_test: bool = True,
+    generator: Optional[torch.Generator] = None,
 ) -> Tuple[List[DataLoader], List[DataLoader], Optional[List[DataLoader]]]:
     """Create train/valid/test dataloaders ordered by species.
 
     The returned train and validation loader lists can be passed directly to
     ``SalukiTrainer``. By default, species index 0 is human and index 1 is mouse.
+
+    Pass a seeded ``generator`` to make the train loaders' shuffle order
+    reproducible (see ``_make_dataloader``); it is applied to the train split
+    only.
     """
 
     paths: Dict[str, str | Path] = dict(SPECIES_TSVS if species_tsvs is None else species_tsvs)
@@ -207,6 +218,7 @@ def create_saluki_dataloaders(
                     num_workers=num_workers,
                     pin_memory=pin_memory,
                     drop_last=drop_last,
+                    generator=generator,
                 )
             )
     if include_test:

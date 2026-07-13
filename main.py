@@ -2,7 +2,9 @@
 import argparse
 import json
 import os
+import random
 import shutil
+import numpy as np
 import torch
 import pandas as pd
 from datetime import datetime
@@ -10,6 +12,30 @@ from datetime import datetime
 from data import create_saluki_dataloaders
 from model import SalukiModel
 from train import SalukiTrainer
+
+# Fallback seed used when a params file predates the top-level "seed" key, so
+# every run is reproducible even without an explicit seed in the config.
+DEFAULT_SEED = 42
+
+
+def set_seed(seed, deterministic=False):
+    """Seed every RNG the training pipeline draws from so a run is reproducible.
+
+    Must be called BEFORE the model and dataloaders are built: weight init
+    (kaiming/orthogonal) and the train-loader shuffle both consume the global
+    torch RNG. ``deterministic`` additionally forces cuDNN into deterministic
+    mode -- left OFF by default because it slows training and the cuDNN GRU can
+    warn/error under strict determinism; seeding alone already removes the
+    dominant run-to-run variance (weights init on CPU via ``torch.manual_seed``).
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    if deterministic:
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+        torch.use_deterministic_algorithms(True, warn_only=True)
 
 # TODO: Import the actual Dataloader from dataset import RnaDataset, when it's implementation is done
 
@@ -55,6 +81,18 @@ def run_training(params, run_dir, run_identifier, wandb_project=None, run_name=N
     save_path = os.path.join(run_dir, f"model_best_{run_identifier}.pt")
     checkpoint_path = os.path.join(run_dir, f"checkpoint_{run_identifier}.pt")
 
+    # Seed EVERYTHING before building the model/dataloaders. Top-level "seed"
+    # governs the whole run (it can't live in the "model" section, which is
+    # splatted into SalukiModel(**params_model)). On resume, train() later
+    # restores the checkpoint's RNG state, correctly continuing the same stream.
+    seed = int(params.get('seed', DEFAULT_SEED))
+    set_seed(seed, deterministic=bool(params.get('deterministic', False)))
+    print(f'DEBUG_MS: seeded run with seed={seed}')
+    # Seeded generator makes the train loaders' shuffle order reproducible and
+    # independent of how many RNG draws model init consumed.
+    data_generator = torch.Generator()
+    data_generator.manual_seed(seed)
+
     print('DEBUG_MS: got to params')
     params_model = params.get('model', {})
     if params_model['heads'] != len(params['data_dirs']):
@@ -77,7 +115,8 @@ def run_training(params, run_dir, run_identifier, wandb_project=None, run_name=N
         seq_length=params_model.get('seq_length'),
         num_workers=4,
         drop_last=True,
-        include_test=False
+        include_test=False,
+        generator=data_generator,
     )
     print('DEBUG_MS: initialized dataloades')
     # Initialize model

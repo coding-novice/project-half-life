@@ -1,4 +1,5 @@
 {
+  "seed": 42,
   "model": {
     "seq_length": 12288,
     "seq_depth": 6,
@@ -14,18 +15,18 @@
     "augment_shift": 3
   },
   "train": {
-    "batch_size": 64,
-    "learning_rate": 0.0001,
+    "batch_size": 128,
+    "learning_rate": 0.00014407,
     "adam_beta1": 0.9,
     "adam_beta2": 0.998,
     "global_clipnorm": 0.2,
-    "optimizer_mode": "AdamW+all_params",
-    "weight_decay": 0.001,
+    "optimizer_mode": "AdamW+parameter_groups",
+    "weight_decay": 0.00001217,
     "patience": 25,
     "keep_best_checkpoint": "one_overall",
     "early_stopping_metric": "one_combined_metric",
     "train_epochs_min": 1,
-    "train_epochs_max": 150,
+    "train_epochs_max": 500,
     "amp_dtype": "none"
   },
   "data_dirs": {

@@ -20,7 +20,7 @@
     "adam_beta1": 0.9,
     "adam_beta2": 0.998,
     "global_clipnorm": 0.2,
-    "optimizer_mode": "Adam_with_L2loss",
+    "optimizer_mode": "AdamW+all_params",
     "weight_decay": 0.001,
     "patience": 25,
     "keep_best_checkpoint": "one_overall",
