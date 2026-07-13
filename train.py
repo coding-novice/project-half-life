@@ -9,6 +9,7 @@ import torch.optim as optim
 import numpy as np
 import pandas as pd
 from basenji import dna_io
+from data import phylogenetic_weights
 
 from scipy.stats import pearsonr, spearmanr
 def pearson(x, y):
@@ -284,10 +285,16 @@ class SalukiTrainer:
         df_mpras = self.df_mpras.rename(columns={0: 'seq', 1: 'measured'})
         print(f"DEBUG: mpra shape: {df_mpras.shape}")
 
-        # Precompute species sampling weights proportional to their dataset size
+        # Precompute species sampling weights proportional to their dataset size multiplied 
+        # by a distance weigthing based on LCA with humans.
         species_samples = [len(dl.dataset) for dl in self.train_dataloaders]
-        total_samples = sum(species_samples)
-        species_weights = [s / total_samples for s in species_samples]
+        phylo_floor = self.params.get('phylo_floor', 0.5)
+        phylo = phylogenetic_weights(self.species_names, floor=phylo_floor)
+        combined = [n * w for n, w in zip(species_samples, phylo)]
+        total_combined = sum(combined)
+        species_weights = [c / total_combined for c in combined]
+        for name, w, p in zip(self.species_names, phylo, species_weights):
+            print(f"DEBUG_DL: {name} phylo_weight={w:.3f} sampling_prob={p:.4f}")
         human_id = self.species_names.index('human')
         mouse_id = self.species_names.index('mouse')
 
@@ -330,10 +337,12 @@ class SalukiTrainer:
                 valid_best = checkpoint.get('valid_best', [-float('inf')] * self.num_datasets)
                 unimproved_species = checkpoint.get('unimproved_species', [0] * self.num_datasets)
 
-                # Restore RNG states
-                torch.set_rng_state(checkpoint['torch_rng_state'])
+                # Restore RNG states. map_location above moves these tensors onto
+                # self.device, but set_rng_state requires a CPU ByteTensor, so move
+                # them back to CPU first.
+                torch.set_rng_state(checkpoint['torch_rng_state'].cpu())
                 if checkpoint['torch_cuda_rng_state'] is not None and torch.cuda.is_available():
-                    torch.cuda.set_rng_state(checkpoint['torch_cuda_rng_state'])
+                    torch.cuda.set_rng_state(checkpoint['torch_cuda_rng_state'].cpu())
                 np.random.set_state(checkpoint['numpy_rng_state'])
                 random.setstate(checkpoint['random_rng_state'])
                 print(f"Resumed successfully from epoch {start_epoch-1}.")

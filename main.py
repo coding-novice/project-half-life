@@ -6,6 +6,7 @@ import random
 import shutil
 import numpy as np
 import torch
+import numpy as np
 import pandas as pd
 from datetime import datetime
 
@@ -100,8 +101,13 @@ def run_training(params, run_dir, run_identifier, wandb_project=None, run_name=N
             f"Number of heads vs number of datasets mismatch: {params_model['heads']} heads initialized, but {len(params['data_dirs'])} datasets provided"
         )
     params_train = params.get('train', {})
+
+    # Fold selection for train/valid/test. Both None -> data.py default (test=0, valid=1).
+    test_fold = params_train.get('test_fold', None)
+    valid_fold = params_train.get('valid_fold', None)
+
     data_dirs = params.get('data_dirs')
-    mpra_data_path = '/s/project/ml4rg_students/2026/project03/saluki_paper/Fig6_S7/Siegel_testSet/'
+    mpra_data_path = '/home/justin/SoSe26/ML4RG/project-half-life/data/Siegel_testSet/'
     df_reporter = pd.read_table(mpra_data_path+"BTV_construct.txt.gz", index_col=0, header=None, compression='gzip')
     df_mpras = pd.read_table(mpra_data_path+"fastUTR_mpra_Beas2B.txt.gz", header=None, compression='gzip')
 
@@ -117,6 +123,8 @@ def run_training(params, run_dir, run_identifier, wandb_project=None, run_name=N
         drop_last=True,
         include_test=False,
         generator=data_generator,
+        test_fold=test_fold,
+        valid_fold=valid_fold,
     )
     print('DEBUG_MS: initialized dataloades')
     # Initialize model

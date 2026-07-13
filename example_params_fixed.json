@@ -26,7 +26,11 @@
     "early_stopping_metric": "one_combined_metric",
     "train_epochs_min": 1,
     "train_epochs_max": 2,
-    "amp_dtype": "bf16"
+    "amp_dtype": "bf16",
+    "phylo_floor": 0.5,
+    "seed": 0,
+    "test_fold": 0,
+    "valid_fold": 1
   },
   "data_dirs": {
     "human": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_human.hg38.hg38.tsv",
