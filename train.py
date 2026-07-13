@@ -171,6 +171,7 @@ class SalukiTrainer:
         species_weights = [s / total_samples for s in species_samples]
         human_id = self.species_names.index('human')
         mouse_id = self.species_names.index('mouse')
+        human_token = torch.Tensor([2.89250415, -29.58291219, -30.37121844, 10.1743205, -23.92949216, -26.28708705, 12.33027023, 97.52364752]).to(self.device, dtype=torch.float32)
 
         start_epoch = 0
         best_valid_r = -float('inf')
@@ -214,13 +215,15 @@ class SalukiTrainer:
             
             for step in range(self.train_steps_per_epoch):
                 di = np.random.choice(self.num_datasets, p=species_weights)
-                x, y = next(train_iters[di])
+                x, y, species_token = next(train_iters[di])
                 
                 # Move to device and ensure types are correct (float32)
                 x = x.to(self.device, dtype=torch.float32)
                 y = y.to(self.device, dtype=torch.float32)
+                species_token = species_token.to(self.device, dtype=torch.float32)
                 
                 self.optimizer.zero_grad()
+                # pred = self.model(x, species_token=species_token, species_index=di)
                 pred = self.model(x, species_index=di)
                 mse_loss = self.loss_fn(pred, y)
                 # Add the Keras-equivalent L2 kernel penalty to the loss so its gradient
@@ -258,10 +261,12 @@ class SalukiTrainer:
                     all_preds = []
                     all_targets = []
                     
-                    for x, y in self.eval_dataloaders[di]:
+                    for x, y, species_token in self.eval_dataloaders[di]:
                         x = x.to(self.device, dtype=torch.float32)
                         y = y.to(self.device, dtype=torch.float32)
+                        species_token = species_token.to(self.device, dtype=torch.float32)
                         
+                        # pred = self.model(x, species_token=species_token, species_index=di)
                         pred = self.model(x, species_index=di)
                         loss = self.loss_fn(pred, y)
                         
@@ -298,6 +303,7 @@ class SalukiTrainer:
                         batch[0,0:len(myseq),0:4] = dna_io.dna_1hot(myseq)
                         batch[0,0:len(coding),4] = coding
                         batch = torch.from_numpy(batch).float().to(self.device)
+                        # pred = self.model(batch, species_token=human_token, species_index=human_id)
                         pred = self.model(batch, species_index=human_id)
                         df_perf['seq'].append(i)
                         df_perf['pred'].append(pred[0][0].cpu().numpy())

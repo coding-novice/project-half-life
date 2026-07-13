@@ -113,12 +113,14 @@ class SalukiTsvDataset(Dataset):
         self,
         tsv_path: str | Path,
         split: str,
+        species_token: list,
         seq_length: int = SEQ_LENGTH,
         dataframe: Optional[pd.DataFrame] = None,
     ) -> None:
         self.tsv_path = str(tsv_path)
         self.split = split
         self.seq_length = seq_length
+        self.species_token = species_token
 
         full_df = _read_saluki_tsv(tsv_path) if dataframe is None else dataframe
         self.dataframe = _split_dataframe(full_df, split)
@@ -138,7 +140,7 @@ class SalukiTsvDataset(Dataset):
 
         target = float(row["half_life"])
         y = torch.tensor([target], dtype=torch.float32)
-        return x, y
+        return x, y, self.species_token
 
 
 def _make_dataloader(
@@ -147,7 +149,7 @@ def _make_dataloader(
     batch_size: int,
     num_workers: int,
     pin_memory: bool,
-    drop_last: bool,
+    drop_last: bool
 ) -> DataLoader:
     return DataLoader(
         dataset,
@@ -162,6 +164,7 @@ def _make_dataloader(
 def create_saluki_dataloaders(
     species_tsvs: Optional[Mapping[str, str | Path]] = None,
     species_order: Sequence[str] = SPECIES_ORDER,
+    # species_embedding: str = None,
     batch_size: int = 64,
     seq_length: int = SEQ_LENGTH,
     num_workers: int = 0,
@@ -180,10 +183,11 @@ def create_saluki_dataloaders(
     valid_loaders: List[DataLoader] = []
     test_loaders: List[DataLoader] = []
     # print(f'DEBUG {paths}')
+    species_embedding = pd.read_csv('/s/project/ml4rg_students/2026/project03/project-half-life/species_emb.csv')
     for species in species_order:
         if species not in paths:
             raise ValueError(f"No TSV path configured for species {species!r}")
-
+        species_token = torch.Tensor(species_embedding[species_embedding['species']==species][['0', '1', '2', '3', '4', '5', '6', '7']].values[0])
         full_df = _read_saluki_tsv(paths[species])
 
         for split, target_list in (
@@ -196,6 +200,7 @@ def create_saluki_dataloaders(
             dataset = SalukiTsvDataset(
                 paths[species],
                 split=split,
+                species_token=species_token,
                 seq_length=seq_length,
                 dataframe=full_df,
             )

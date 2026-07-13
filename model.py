@@ -107,6 +107,25 @@ class SalukiModel(nn.Module):
         # Output Heads (For N species)
         self.output_heads = nn.ModuleList([nn.Linear(filters, 1) for _ in range(heads)])
 
+        # FiLM
+        # self.species_token_emb = nn.Sequential(
+        #     nn.Linear(8, 32),
+        #     nn.GELU(),
+        #     nn.Dropout(0.1),
+        #     nn.Linear(32, 2*filters)
+        # )
+
+        # FiLM bias-only
+        # self.species_token_emb = nn.Sequential(
+        #     nn.Linear(8, 32),
+        #     nn.GELU(),
+        #     nn.Dropout(0.1),
+        #     nn.Linear(32, filters)
+        # )
+
+        # Species token "AG-style"
+        self.species_token_emb = nn.Embedding(heads, filters)
+
         # Match Keras 'he_normal' kernel initialization across all layers.
         self._init_weights()
 
@@ -145,6 +164,7 @@ class SalukiModel(nn.Module):
         reg = reg + self.penultimate_dense.weight.pow(2).sum()
         return self.l2_scale * reg
 
+    # def forward(self, x, species_token=None, species_index=0):
     def forward(self, x, species_index=0):
         # x shape: (batch_size, 12288, 6)
 
@@ -154,11 +174,27 @@ class SalukiModel(nn.Module):
         if self.training and self.augment_shift:
             x = stochastic_shift(x, shift_max=self.augment_shift)
 
+        # FiLM
+        # species_weight, species_bias = self.species_token_emb(species_token).chunk(2, dim=-1)
+        # species_weight = species_weight.unsqueeze(-1)
+        # species_bias = species_bias.unsqueeze(-1)
+
+        # Bias-only FiLM
+        # species_bias = self.species_token_emb(species_token)
+        # species_bias = species_bias.unsqueeze(-1)
+
+        # "AG-style"
+        species_bias = self.species_token_emb(
+            torch.tensor([species_index], dtype=torch.long, device=x.device)
+        )
+        species_bias = species_bias.unsqueeze(1)
+
         # Permute to (batch_size, 6, 12288) for Conv1d
         x = x.permute(0, 2, 1)
         
         # Initial Convolution
         x = self.initial_conv(x)
+        # x *= species_token
         
         # Middle convolutions
         for block in self.middle_blocks:
@@ -167,6 +203,7 @@ class SalukiModel(nn.Module):
             x = block['ln'](x)
             x = x.permute(0, 2, 1) # Back to (batch, channels, length)
             
+            # print('DEBUG: ', x.shape)
             x = F.relu(x)
             x = block['conv'](x)
             x = block['dropout'](x)
@@ -176,6 +213,8 @@ class SalukiModel(nn.Module):
         # Transpose back for LayerNorm and GRU
         x = x.permute(0, 2, 1) # (batch, length, channels)
         x = self.gru_ln(x)
+        # print(f"DEBUG_TOKEN: {x.shape}, {species_bias.shape}")
+        x = x + species_bias
         x = F.relu(x)
         
         # GRU go_backwards logic: flip along the sequence length dimension (dim=1)
