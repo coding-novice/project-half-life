@@ -22,7 +22,8 @@
     "patience": 25,
     "train_epochs_min": 1,
     "train_epochs_max": 150,
-    "amp_dtype": "none"
+    "amp_dtype": "none",
+    "phylo_floor": 0.5
   },
   "data_dirs": {
     "human": "/s/project/ml4rg_students/2026/project03/toga_13_species_updated/saluki_human.hg38.hg38.tsv",
