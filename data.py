@@ -67,12 +67,39 @@ def phylogenetic_weights(
             weights.append(1.0 - (d / max_divergence_mya) * (1.0 - floor))
     return weights
 
-# todo: read this in as  an argument from startup shall script / sbatch
+N_FOLDS = 10
+
+# Default split: fold 0 = test, fold 1 = valid, folds 2-9 = train. Overridable at
+# runtime via ``build_split_to_folds`` (driven by ``test_fold``/``valid_fold`` in
+# params.json) so a cross-validation / ensemble sweep can rotate which fold is held out.
 SPLIT_TO_FOLDS: Mapping[str, Tuple[int, ...]] = {
     "test": (0,),
     "valid": (1,),
     "train": tuple(range(2, 10)),
 }
+
+
+def build_split_to_folds(
+    test_fold: int,
+    valid_fold: int,
+    n_folds: int = N_FOLDS,
+) -> Dict[str, Tuple[int, ...]]:
+    """Build a ``{split: folds}`` mapping from a chosen test/valid fold.
+
+    Train is *everything else*: all folds except ``test_fold`` and ``valid_fold``.
+    This is the contract for the ensemble sweep -- each member fixes the same
+    ``test_fold`` (the held-out set) and rotates ``valid_fold`` over the rest.
+    """
+    if test_fold == valid_fold:
+        raise ValueError(
+            f"test_fold and valid_fold must differ (both were {test_fold})"
+        )
+    for name, fold in (("test_fold", test_fold), ("valid_fold", valid_fold)):
+        if not 0 <= fold < n_folds:
+            raise ValueError(f"{name}={fold} out of range [0, {n_folds})")
+
+    train = tuple(f for f in range(n_folds) if f not in (test_fold, valid_fold))
+    return {"test": (test_fold,), "valid": (valid_fold,), "train": train}
 
 REQUIRED_COLUMNS: Tuple[str, ...] = (
     "gene",
@@ -93,12 +120,16 @@ def _read_saluki_tsv(tsv_path: str | Path) -> pd.DataFrame:
     return df
 
 
-def _split_dataframe(df: pd.DataFrame, split: str) -> pd.DataFrame:
-    if split not in SPLIT_TO_FOLDS:
-        valid = ", ".join(sorted(SPLIT_TO_FOLDS))
+def _split_dataframe(
+    df: pd.DataFrame,
+    split: str,
+    split_to_folds: Mapping[str, Tuple[int, ...]] = SPLIT_TO_FOLDS,
+) -> pd.DataFrame:
+    if split not in split_to_folds:
+        valid = ", ".join(sorted(split_to_folds))
         raise ValueError(f"Unknown split {split!r}; expected one of: {valid}")
 
-    split_df = df[df["fold"].isin(SPLIT_TO_FOLDS[split])].copy()
+    split_df = df[df["fold"].isin(split_to_folds[split])].copy()
     if split_df.empty:
         raise ValueError(f"No rows found for split {split!r}")
 
@@ -148,13 +179,14 @@ class SalukiTsvDataset(Dataset):
         split: str,
         seq_length: int = SEQ_LENGTH,
         dataframe: Optional[pd.DataFrame] = None,
+        split_to_folds: Mapping[str, Tuple[int, ...]] = SPLIT_TO_FOLDS,
     ) -> None:
         self.tsv_path = str(tsv_path)
         self.split = split
         self.seq_length = seq_length
 
         full_df = _read_saluki_tsv(tsv_path) if dataframe is None else dataframe
-        self.dataframe = _split_dataframe(full_df, split)
+        self.dataframe = _split_dataframe(full_df, split, split_to_folds)
 
 
     def __len__(self) -> int:
@@ -208,6 +240,8 @@ def create_saluki_dataloaders(
     drop_last: bool = False,
     include_test: bool = True,
     generator: Optional[torch.Generator] = None,
+    test_fold: Optional[int] = None,
+    valid_fold: Optional[int] = None,
 ) -> Tuple[List[DataLoader], List[DataLoader], Optional[List[DataLoader]]]:
     """Create train/valid/test dataloaders ordered by species.
 
@@ -217,7 +251,20 @@ def create_saluki_dataloaders(
     Pass a seeded ``generator`` to make the train loaders' shuffle order
     reproducible (see ``_make_dataloader``); it is applied to the train split
     only.
+    
+    ``test_fold``/``valid_fold`` select which fold is held out for test/validation
+    (train is every other fold). If either is ``None`` the module default
+    ``SPLIT_TO_FOLDS`` (test=0, valid=1, train=2-9) is used, preserving prior behaviour.
     """
+
+    if test_fold is None and valid_fold is None:
+        split_to_folds = SPLIT_TO_FOLDS
+    else:
+        if test_fold is None or valid_fold is None:
+            raise ValueError(
+                "test_fold and valid_fold must be given together (or both omitted)"
+            )
+        split_to_folds = build_split_to_folds(test_fold, valid_fold)
 
     paths: Dict[str, str | Path] = dict(SPECIES_TSVS if species_tsvs is None else species_tsvs)
     train_loaders: List[DataLoader] = []
@@ -242,6 +289,7 @@ def create_saluki_dataloaders(
                 split=split,
                 seq_length=seq_length,
                 dataframe=full_df,
+                split_to_folds=split_to_folds,
             )
             target_list.append(
                 _make_dataloader(

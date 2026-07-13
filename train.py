@@ -337,10 +337,12 @@ class SalukiTrainer:
                 valid_best = checkpoint.get('valid_best', [-float('inf')] * self.num_datasets)
                 unimproved_species = checkpoint.get('unimproved_species', [0] * self.num_datasets)
 
-                # Restore RNG states
-                torch.set_rng_state(checkpoint['torch_rng_state'])
+                # Restore RNG states. map_location above moves these tensors onto
+                # self.device, but set_rng_state requires a CPU ByteTensor, so move
+                # them back to CPU first.
+                torch.set_rng_state(checkpoint['torch_rng_state'].cpu())
                 if checkpoint['torch_cuda_rng_state'] is not None and torch.cuda.is_available():
-                    torch.cuda.set_rng_state(checkpoint['torch_cuda_rng_state'])
+                    torch.cuda.set_rng_state(checkpoint['torch_cuda_rng_state'].cpu())
                 np.random.set_state(checkpoint['numpy_rng_state'])
                 random.setstate(checkpoint['random_rng_state'])
                 print(f"Resumed successfully from epoch {start_epoch-1}.")
