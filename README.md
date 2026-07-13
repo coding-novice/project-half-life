@@ -1,6 +1,19 @@
 # project-half-life
 ML4RG project @TUM
 
+This project contains a model for mRNA half-life prediction based on Saluki but 
+rewritten in Pytorch and extended to support 13 species and with additional 
+configurable tweaks and numerous reproducible training runs for the experiments 
+we performed. 
+
+## Installation Notes 
+
+The dependencies for the model can be installed with conda from env.yaml 
+
+There is also a dependency on the original [saluki implementation](https://github.com/calico/basenji)
+which can be installed with pip. 
+
+
 ## Configuration parameters (`params.json`)
 
 Parameters live under two top-level sections, `model` and `train`, plus a
@@ -144,7 +157,7 @@ duplicate work whether they run in parallel or consecutively. The number of
 agents is arbitrary and they can be launched over several days for the same
 sweep; each new agent continues from the accumulated Bayesian history.
 
-### One-time setup
+### One-time setup on the cluster 
 ```bash
 conda activate saluki_pytorch
 cd /data/nasif12/home_if12/s_fvacc/project-half-life
