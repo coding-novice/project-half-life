@@ -15,7 +15,7 @@ from train import SalukiTrainer
 
 class DummyDataLoader:
     """
-    Placeholder DataLoader for testing the pipeline before the actual 
+    Placeholder DataLoader for testing the pipeline before the actual
     dataset is implemented by Valentin.
     """
     def __init__(self, data_dir, split_label, batch_size, seq_length=12288, seq_depth=6):
@@ -24,7 +24,7 @@ class DummyDataLoader:
         self.batch_size = batch_size
         self.seq_length = seq_length
         self.seq_depth = seq_depth
-        
+
         # We need a dummy dataset attribute with length for Trainer species weighting logic
         class DummyDataset:
             def __len__(self):
@@ -42,65 +42,18 @@ class DummyDataLoader:
             y = torch.randn(self.batch_size, 1)
             yield x, y
 
-def main():
-    parser = argparse.ArgumentParser(description="Train Saluki PyTorch model.")
-    parser.add_argument('params_file', type=str, nargs='?', help='Path to params.json (Optional if resuming)')
-    parser.add_argument('-o', '--out_dir', type=str, default='train_out', help='Output directory [Default: train_out]')
-    parser.add_argument('--wandb_project', type=str, default=None, help='Weights & Biases project name for logging')
-    parser.add_argument('--run_name', type=str, default=None, help='Weights & Biases run name for logging')
-    parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help='Device to train on (cuda/cpu)')
-    parser.add_argument('--resume_checkpoint_path', type=str, default=None, help='Path to a checkpoint file to resume from. When used, params_file is ignored.')
-    
-    args = parser.parse_args()
 
-    # Determine identifiers
-    current_job_id = os.environ.get('SLURM_JOB_ID', 'local')
-    current_timestamp = datetime.now().strftime("%m-%d-%H-%M")
-    current_identifier = f"{current_job_id}_{current_timestamp}"
+def run_training(params, run_dir, run_identifier, wandb_project=None, run_name=None,
+                 device='cuda', resume_from=None):
+    """Build dataloaders/model/trainer from a resolved ``params`` dict and train.
 
-    if args.resume_checkpoint_path:
-        if not os.path.isfile(args.resume_checkpoint_path):
-            raise FileNotFoundError(f"Resume checkpoint not found: {args.resume_checkpoint_path}")
-        
-        run_dir = os.path.dirname(os.path.abspath(args.resume_checkpoint_path))
-        checkpoint_filename = os.path.basename(args.resume_checkpoint_path)
-        
-        # Expecting checkpoint_{initial_identifier}.pt
-        # Extract initial_identifier to load the correct params.json
-        if checkpoint_filename.startswith("checkpoint_") and checkpoint_filename.endswith(".pt"):
-            initial_identifier = checkpoint_filename[len("checkpoint_"):-len(".pt")]
-        else:
-            raise ValueError(f"Checkpoint filename {checkpoint_filename} does not match expected format 'checkpoint_{{identifier}}.pt'")
-            
-        params_file_path = os.path.join(run_dir, f"params_{initial_identifier}.json")
-        save_path = os.path.join(run_dir, f"model_best_{initial_identifier}.pt")
-        checkpoint_path = os.path.join(run_dir, f"checkpoint_{initial_identifier}.pt")
-        
-        # Document the resuming run
-        with open(os.path.join(run_dir, "resuming_run_identifier.txt"), "a") as f:
-            f.write(f"{current_identifier}\n")
-            
-        with open(params_file_path, 'r') as params_open:
-            params = json.load(params_open)
-        
-        # Recover data_dirs from params
-        data_dirs = params.get('data_dirs', [])
-        if not data_dirs:
-            raise ValueError("data_dirs not found in the loaded params.json. Cannot resume.")
-    else:
-        if not args.params_file:
-            parser.error("params_file is required unless resuming via --resume_checkpoint_path.")
-            
-        run_identifier = current_identifier
-        run_dir = os.path.join(args.out_dir, run_identifier)
-        os.makedirs(run_dir, exist_ok=True)
-        
-        params_file_path = os.path.join(run_dir, f"params_{run_identifier}.json")
-        save_path = os.path.join(run_dir, f"model_best_{run_identifier}.pt")
-        checkpoint_path = os.path.join(run_dir, f"checkpoint_{run_identifier}.pt")
-
-        with open(args.params_file, 'r') as params_open:
-            params = json.load(params_open)
+    Shared by the CLI entry point (``main``) and the wandb sweep entry point
+    (``sweep_train.py``) so both go through identical setup. ``run_dir`` must
+    already exist; the best-model and resume checkpoint paths are derived from
+    ``run_dir`` + ``run_identifier`` so a resuming job finds them deterministically.
+    """
+    save_path = os.path.join(run_dir, f"model_best_{run_identifier}.pt")
+    checkpoint_path = os.path.join(run_dir, f"checkpoint_{run_identifier}.pt")
 
     print('DEBUG_MS: got to params')
     params_model = params.get('model', {})
@@ -115,8 +68,6 @@ def main():
     df_mpras = pd.read_table(mpra_data_path+"fastUTR_mpra_Beas2B.txt.gz", header=None, compression='gzip')
 
     species_names = list(data_dirs.keys())
-    train_data = []
-    eval_data = []
     print('DEBUG_MS: initializing dataloades...')
     # Initialize dataloaders
     train_data, eval_data = create_saluki_dataloaders(
@@ -143,16 +94,93 @@ def main():
         eval_dataloaders=eval_data,
         params=params_train,
         params_model=params_model,
-        device=args.device,
+        device=device,
         species_names=species_names,
-        wandb_project=args.wandb_project,
-        run_name=args.run_name,
+        wandb_project=wandb_project,
+        run_name=run_name,
         df_reporter=df_reporter,
         df_mpras=df_mpras
     )
     print('DEBUG_MS: initialized trainer, started training...')
     # Fit
-    trainer.train(save_path=save_path, checkpoint_path=checkpoint_path, resume_from=args.resume_checkpoint_path)
+    trainer.train(save_path=save_path, checkpoint_path=checkpoint_path, resume_from=resume_from)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Train Saluki PyTorch model.")
+    parser.add_argument('params_file', type=str, nargs='?', help='Path to params.json (Optional if resuming)')
+    parser.add_argument('-o', '--out_dir', type=str, default='train_out', help='Output directory [Default: train_out]')
+    parser.add_argument('--wandb_project', type=str, default=None, help='Weights & Biases project name for logging')
+    parser.add_argument('--run_name', type=str, default=None, help='Weights & Biases run name for logging')
+    parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help='Device to train on (cuda/cpu)')
+    parser.add_argument('--resume_checkpoint_path', type=str, default=None, help='Path to a checkpoint file to resume from. When used, params_file is ignored.')
+
+    args = parser.parse_args()
+
+    # Determine identifiers
+    current_job_id = os.environ.get('SLURM_JOB_ID', 'local')
+    current_timestamp = datetime.now().strftime("%m-%d-%H-%M")
+    current_identifier = f"{current_job_id}_{current_timestamp}"
+
+    if args.resume_checkpoint_path:
+        if not os.path.isfile(args.resume_checkpoint_path):
+            raise FileNotFoundError(f"Resume checkpoint not found: {args.resume_checkpoint_path}")
+
+        run_dir = os.path.dirname(os.path.abspath(args.resume_checkpoint_path))
+        checkpoint_filename = os.path.basename(args.resume_checkpoint_path)
+
+        # Expecting checkpoint_{initial_identifier}.pt
+        # Extract initial_identifier to load the correct params.json
+        if checkpoint_filename.startswith("checkpoint_") and checkpoint_filename.endswith(".pt"):
+            initial_identifier = checkpoint_filename[len("checkpoint_"):-len(".pt")]
+        else:
+            raise ValueError(f"Checkpoint filename {checkpoint_filename} does not match expected format 'checkpoint_{{identifier}}.pt'")
+
+        params_file_path = os.path.join(run_dir, f"params_{initial_identifier}.json")
+
+        # Document the resuming run
+        with open(os.path.join(run_dir, "resuming_run_identifier.txt"), "a") as f:
+            f.write(f"{current_identifier}\n")
+
+        with open(params_file_path, 'r') as params_open:
+            params = json.load(params_open)
+
+        # Recover data_dirs from params
+        data_dirs = params.get('data_dirs', [])
+        if not data_dirs:
+            raise ValueError("data_dirs not found in the loaded params.json. Cannot resume.")
+
+        run_identifier = initial_identifier
+        resume_from = args.resume_checkpoint_path
+    else:
+        if not args.params_file:
+            parser.error("params_file is required unless resuming via --resume_checkpoint_path.")
+
+        run_identifier = current_identifier
+        run_dir = os.path.join(args.out_dir, run_identifier)
+        os.makedirs(run_dir, exist_ok=True)
+
+        params_file_path = os.path.join(run_dir, f"params_{run_identifier}.json")
+
+        with open(args.params_file, 'r') as params_open:
+            params = json.load(params_open)
+
+        # Persist the exact params used for this run so it can be resumed later
+        # (main() owns params_*.json dumping; the resume path reads it back above).
+        with open(params_file_path, 'w') as params_out:
+            json.dump(params, params_out, indent=2)
+
+        resume_from = None
+
+    run_training(
+        params=params,
+        run_dir=run_dir,
+        run_identifier=run_identifier,
+        wandb_project=args.wandb_project,
+        run_name=args.run_name,
+        device=args.device,
+        resume_from=resume_from,
+    )
 
 if __name__ == '__main__':
     main()

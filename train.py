@@ -118,15 +118,37 @@ class SalukiTrainer:
         for name, dl in zip(self.species_names, self.train_dataloaders):
                     print(f"{name}: {len(dl.dataset)} train samples")
 
-        self.use_wandb = wandb_project is not None
+        # Weights & Biases setup. Two entry paths:
+        #   1. Normal CLI training (main.py): no run is active yet, so we init one
+        #      here exactly as before (gated on wandb_project being set).
+        #   2. Sweep training (sweep_train.py / `wandb agent`): the agent has
+        #      ALREADY called wandb.init() and injected the trial's hyperparameters
+        #      into wandb.config before we run. Calling wandb.init() a second time
+        #      would conflict, so we detect the active run and reuse it, recording
+        #      the resolved train params on top of the swept ones.
+        self.use_wandb = wandb_project is not None or wandb.run is not None
         if self.use_wandb:
-            assert run_name is not None
-            self.wandb_run = wandb.init(
-                entity="project-half-life",
-                project=wandb_project,
-                name=run_name,
-                config=self.params,
-            )
+            if wandb.run is not None:
+                self.wandb_run = wandb.run
+                # Log the fully-resolved train params (swept keys already present
+                # in config keep their swept values unless we override them here).
+                wandb.config.update(self.params, allow_val_change=True)
+            else:
+                assert run_name is not None
+                self.wandb_run = wandb.init(
+                    entity="project-half-life",
+                    project=wandb_project,
+                    name=run_name,
+                    config=self.params,
+                )
+
+        # Optional soft wall-clock deadline (epoch seconds since epoch) set by the
+        # SLURM sweep-agent script via the SALUKI_JOB_DEADLINE env var. When set,
+        # train() stops cleanly at an epoch boundary if the next epoch would risk
+        # overrunning the job's time limit, so SLURM never SIGKILLs mid-epoch and
+        # leaves a corrupt checkpoint / zombie wandb run. Unset -> no deadline.
+        deadline_env = os.environ.get('SALUKI_JOB_DEADLINE')
+        self.deadline = float(deadline_env) if deadline_env else None
             
         self.patience = self.params.get('patience', 25)
         self.train_epochs_min = self.params.get('train_epochs_min', 100)
@@ -318,7 +340,28 @@ class SalukiTrainer:
             else:
                 raise FileNotFoundError(f"Checkpoint file not found: {resume_from}")
         
+        # Rolling estimate of a full epoch's wall time (train + validation), used
+        # by the optional wall-clock guard below. 0.0 => first epoch is never
+        # blocked by the deadline.
+        last_epoch_dur = 0.0
+
         for epoch in range(start_epoch, self.train_epochs_max):
+            epoch_wall_start = time.time()
+
+            # Optional wall-clock guard (SLURM 8h limit). Stop cleanly at the epoch
+            # boundary if starting another epoch would risk overrunning the job's
+            # soft deadline (SALUKI_JOB_DEADLINE). The per-epoch checkpoint from the
+            # previous iteration is already on disk, so a requeued/next job can pick
+            # up where this one left off. 1.15x margin absorbs epoch-time jitter.
+            if self.deadline is not None and last_epoch_dur > 0.0:
+                if time.time() + 1.15 * last_epoch_dur > self.deadline:
+                    print(
+                        f"Wall-clock guard: stopping before epoch {epoch} "
+                        f"(~{last_epoch_dur:.0f}s/epoch would exceed SALUKI_JOB_DEADLINE).",
+                        flush=True,
+                    )
+                    break
+
             # Early stopping. The counter(s) consulted depend on early_stopping_metric.
             # "all_species"/"human_mouse" mirror TF fit2's np.min(unimproved) > patience:
             # stop only once EVERY monitored species has stalled for > patience epochs.
@@ -551,3 +594,7 @@ class SalukiTrainer:
             temp_checkpoint_path = checkpoint_path + ".tmp"
             torch.save(checkpoint_state, temp_checkpoint_path)
             os.replace(temp_checkpoint_path, checkpoint_path)
+
+            # Update the rolling full-epoch (train + validation + checkpoint) wall
+            # time used by the wall-clock guard at the top of the loop.
+            last_epoch_dur = time.time() - epoch_wall_start
