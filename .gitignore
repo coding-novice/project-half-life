@@ -19,3 +19,6 @@ outputs/
 wandb/
 *pq
 *npz
+
+#symlinks
+basenji
