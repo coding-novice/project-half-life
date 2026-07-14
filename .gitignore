@@ -8,6 +8,9 @@ logs/
 out_first_try/
 outputs/
 
+#symlink
+basenji 
+
 # Test data
 *h5
 *h5ad
@@ -19,3 +22,6 @@ outputs/
 wandb/
 *pq
 *npz
+
+#sweep artifacts
+*.lock
