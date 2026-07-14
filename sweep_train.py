@@ -31,7 +31,8 @@ from main import run_training
 def main():
     parser = argparse.ArgumentParser(description="Saluki wandb sweep trial.")
     parser.add_argument('--base_params', type=str,
-                        default='example_params_fixed_adamW_paramGroups_13sp.json',
+                        # default='example_params_fixed_adamW_paramGroups_13sp.json',
+                        default='example_params_fixed_adam_l2Reg_13sp.json',
                         help='Base params.json whose train hyperparameters are overridden by the sweep.')
     parser.add_argument('--out_dir', type=str, default='outputs/sweep',
                         help='Parent directory for per-trial run dirs [Default: outputs/sweep].')
@@ -54,10 +55,10 @@ def main():
     train = params.setdefault('train', {})
     train['learning_rate'] = float(cfg.get('learning_rate', train.get('learning_rate')))
     train['batch_size'] = int(cfg.get('batch_size', train.get('batch_size')))
-    train['weight_decay'] = float(cfg.get('weight_decay', train.get('weight_decay')))
+    # train['weight_decay'] = float(cfg.get('weight_decay', train.get('weight_decay')))
     # This sweep targets the AdamW parameter-groups variant; pin it so the swept
     # weight_decay is applied as decoupled decay regardless of the base file.
-    train['optimizer_mode'] = 'AdamW+parameter_groups'
+    train['optimizer_mode'] = 'Adam_with_L2loss'
 
     # One run dir per trial, keyed by the globally-unique wandb run id so parallel
     # agents never collide on checkpoint/model files.

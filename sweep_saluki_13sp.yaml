@@ -21,10 +21,10 @@ parameters:
     distribution: log_uniform_values
     min: 1.0e-5
     max: 3.0e-3
-  weight_decay:
-    distribution: log_uniform_values
-    min: 1.0e-6
-    max: 1.0e-1
+  # weight_decay:
+  #   distribution: log_uniform_values
+  #   min: 1.0e-6
+  #   max: 1.0e-1
   # batch_size >= 64 keeps the slowest trial inside the 8h SLURM wall
   # (~100 s/epoch at bs=64 on 13 species); <= 1024 respects the memory limit
   # (probe: 1024 fits, 2048 OOMs).
@@ -35,8 +35,8 @@ parameters:
 # (SalukiTrainer logs combined/valid_r with step=epoch); brackets ~ 15 / 45 / 135.
 early_terminate:
   type: hyperband
-  min_iter: 15
-  eta: 3
+  min_iter: 20
+  eta: 2
 
 # Optional hard trial budget: uncomment to auto-complete the sweep after N trials.
 # Without it, a Bayesian sweep runs until you stop it in the UI/CLI.
